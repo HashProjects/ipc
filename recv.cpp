@@ -118,6 +118,8 @@ void mainLoop()
 			
 			msgsnd(msqid, &msg, sizeof(msg), 0);
 
+			msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
+			msgSize = msg.size;
 		}
 		/* We are done */
 		else

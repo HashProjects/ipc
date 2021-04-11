@@ -41,16 +41,15 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 	/* obtain the identifier of a previously created shared memory segment 
 	   (when shmflg is zero and key does not have the value IPC_PRIVATE)
 	*/
+	
 	shmid = shmget(key, SHARED_MEMORY_CHUNK_SIZE, 0666|IPC_CREAT);
 
 
-	sharedMemPtr = shmat(shmid, NULL, 0);
+	sharedMemPtr = shmat(shmid, NULL, IPC_CREAT);
 	
 	
 	/* TODO: Attach to the message queue */
 	msqid = msgget(key, 0666 | IPC_CREAT);
-
-	printf("message sent: %d\n", sndMsg.size);
 
 	/* Store the IDs and the pointer to the shared memory region in the corresponding parameters */
 	
