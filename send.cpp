@@ -34,12 +34,24 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 		    is unique system-wide among all SYstem V objects. Two objects, on the other hand,
 		    may have the same key.
 	 */
-	
+	key_t key;
+	key = ftok("keyfile.txt", 'a');
 
-	
 	/* TODO: Get the id of the shared memory segment. The size of the segment must be SHARED_MEMORY_CHUNK_SIZE */
-	/* TODO: Attach to the shared memory */
+	/* obtain the identifier of a previously created shared memory segment 
+	   (when shmflg is zero and key does not have the value IPC_PRIVATE)
+	*/
+	shmid = shmget(key, SHARED_MEMORY_CHUNK_SIZE, 0666|IPC_CREAT);
+
+
+	sharedMemPtr = shmat(shmid, NULL, 0);
+	
+	
 	/* TODO: Attach to the message queue */
+	msqid = msgget(key, 0666 | IPC_CREAT);
+
+	printf("message sent: %d\n", sndMsg.size);
+
 	/* Store the IDs and the pointer to the shared memory region in the corresponding parameters */
 	
 }
@@ -54,6 +66,7 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
 {
 	/* TODO: Detach from shared memory */
+	shmdt(sharedMemPtr);
 }
 
 /**
@@ -92,14 +105,19 @@ void send(const char* fileName)
 			exit(-1);
 		}
 		
-			
 		/* TODO: Send a message to the receiver telling him that the data is ready 
  		 * (message of type SENDER_DATA_TYPE) 
  		 */
-		
+		printf("message sent: %d\n", sndMsg.size);
+		sndMsg.mtype = SENDER_DATA_TYPE;
+		size_t r = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
+		printf("message sent: %ld\n", r);
 		/* TODO: Wait until the receiver sends us a message of type RECV_DONE_TYPE telling us 
  		 * that he finished saving the memory chunk. 
- 		 */
+ 		 */ 
+	    msgrcv(msqid, &rcvMsg, sizeof(rcvMsg), RECV_DONE_TYPE, 0);
+	
+
 	}
 	
 
@@ -107,7 +125,9 @@ void send(const char* fileName)
  	  * Lets tell the receiver that we have nothing more to send. We will do this by
  	  * sending a message of type SENDER_DATA_TYPE with size field set to 0. 	
 	  */
-
+	sndMsg.mtype = SENDER_DATA_TYPE;
+	sndMsg.size = 0;
+	msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
 		
 	/* Close the file */
 	fclose(fp);
