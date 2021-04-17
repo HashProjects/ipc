@@ -1,3 +1,5 @@
 send
 recv
 *.o
+recvfile
+.vscode/
