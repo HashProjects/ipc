@@ -85,7 +85,7 @@ void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
 	/* TODO: Detach from shared memory */
 	int result = shmdt(sharedMemPtr);
 	if (result == -1) {
-		fprintf(stderr, "failed to deatach memory\n", strerror(errno));
+		fprintf(stderr, "failed to detach shared memory: %s\n", strerror(errno));
 	}
 }
 
