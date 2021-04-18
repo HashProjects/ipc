@@ -3,7 +3,9 @@
 #include <sys/msg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
+#include <errno.h>
 #include "msg.h"    /* For the message struct */
 
 /* The size of the shared memory chunk */
@@ -15,6 +17,7 @@ int shmid, msqid;
 /* The pointer to the shared memory */
 void* sharedMemPtr;
 
+void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr);
 /**
  * Sets up the shared memory segment and message queue
  * @param shmid - the id of the allocated shared memory 
@@ -36,21 +39,36 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 	 */
 	key_t key;
 	key = ftok("keyfile.txt", 'a');
+	if (key == -1) {
+		fprintf(stderr, "Failed to generate key: %s\n", strerror(errno));
+		exit(-1);
+	}
 
 	/* TODO: Get the id of the shared memory segment. The size of the segment must be SHARED_MEMORY_CHUNK_SIZE */
 	/* obtain the identifier of a previously created shared memory segment 
 	   (when shmflg is zero and key does not have the value IPC_PRIVATE)
 	*/
 	
-	shmid = shmget(key, SHARED_MEMORY_CHUNK_SIZE, 0666|IPC_CREAT);
-
+	shmid = shmget(key, SHARED_MEMORY_CHUNK_SIZE, 0666 | IPC_CREAT);
+	if (shmid == -1) {
+		fprintf(stderr, "failed to obtain shared memory: %s\n", strerror(errno));
+		exit(-1);
+	}
 
 	sharedMemPtr = shmat(shmid, NULL, IPC_CREAT);
+	if (sharedMemPtr == (void*)-1) {
+		fprintf(stderr, "failed to obtain shared memory pointer: %s\n", strerror(errno));
+		exit(-1);
+	}
 	
 	
 	/* TODO: Attach to the message queue */
 	msqid = msgget(key, 0666 | IPC_CREAT);
-
+	if (msqid == -1) {
+		fprintf(stderr, "failed to obtain message queue: %s\n", strerror(errno));
+		cleanUp(shmid, msqid, sharedMemPtr);
+		exit(-1);
+	}
 	/* Store the IDs and the pointer to the shared memory region in the corresponding parameters */
 	
 }
@@ -88,6 +106,7 @@ void send(const char* fileName)
 	if(!fp)
 	{
 		perror("fopen");
+		cleanUp(shmid, msqid, sharedMemPtr);
 		exit(-1);
 	}
 	
@@ -101,16 +120,21 @@ void send(const char* fileName)
 		if((sndMsg.size = fread(sharedMemPtr, sizeof(char), SHARED_MEMORY_CHUNK_SIZE, fp)) < 0)
 		{
 			perror("fread");
+			cleanUp(shmid, msqid, sharedMemPtr);
 			exit(-1);
 		}
 		
 		/* TODO: Send a message to the receiver telling him that the data is ready 
  		 * (message of type SENDER_DATA_TYPE) 
  		 */
-		printf("message sent: %d\n", sndMsg.size);
+		fprintf(stdout, "sending message to receiver: %d bytes are ready to read\n", sndMsg.size);
 		sndMsg.mtype = SENDER_DATA_TYPE;
-		size_t r = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
-		printf("message sent: %ld\n", r);
+		int result = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
+		if (result == -1) {
+			fprintf(stderr, "failed to send message to receiver: %s\n", strerror(errno));
+			cleanUp(shmid, msqid, sharedMemPtr);
+			exit(-1);
+		}
 		/* TODO: Wait until the receiver sends us a message of type RECV_DONE_TYPE telling us 
  		 * that he finished saving the memory chunk. 
  		 */ 
@@ -127,10 +151,11 @@ void send(const char* fileName)
 	sndMsg.mtype = SENDER_DATA_TYPE;
 	sndMsg.size = 0;
 	msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
+	fprintf(stdout, "sending message to receiver: %d bytes left, finished.\n", sndMsg.size);
 		
 	/* Close the file */
 	fclose(fp);
-	
+	 
 }
 
 
@@ -138,11 +163,14 @@ int main(int argc, char** argv)
 {
 	
 	/* Check the command line arguments */
+	fprintf(stdout, "send - sends data to a receiver\n");
 	if(argc < 2)
 	{
 		fprintf(stderr, "USAGE: %s <FILE NAME>\n", argv[0]);
 		exit(-1);
 	}
+
+	fprintf(stdout, "sending %s\n", argv[1]);
 		
 	/* Connect to shared memory and the message queue */
 	init(shmid, msqid, sharedMemPtr);
