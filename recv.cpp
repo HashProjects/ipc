@@ -47,7 +47,7 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 
 	
 	/* TODO: Allocate a piece of shared memory. The size of the segment must be SHARED_MEMORY_CHUNK_SIZE. */
-	shmid = shmget(key, SHARED_MEMORY_CHUNK_SIZE, IPC_CREAT);
+	shmid = shmget(key, SHARED_MEMORY_CHUNK_SIZE, 0666 | IPC_CREAT);
 
 	
 	/* TODO: Attach to the shared memory */
@@ -92,7 +92,7 @@ void mainLoop()
 	message msg;
 
 	int r = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
-	printf("message received %d\n", r);
+	printf("message received %d bytes (memory size to read: %d)\n", r, msg.size);
 	msgSize = msg.size;
 
 	/* Keep receiving until the sender set the size to 0, indicating that
@@ -117,17 +117,22 @@ void mainLoop()
 			msg.mtype = RECV_DONE_TYPE;
 			
 			msgsnd(msqid, &msg, sizeof(msg), 0);
+			printf("message sent: RECV_DONE_TYPE\n");
 
 			msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
+			printf("message received %d bytes (memory size: %d)\n", r, msg.size);
 			msgSize = msg.size;
 		}
 		/* We are done */
 		else
 		{
-			/* Close the file */
-			fclose(fp);
+
 		}
 	}
+	
+	/* Close the file */
+	fprintf(stdout, "Transfer complete. Closing file\n");
+	fclose(fp);
 }
 
 
@@ -158,11 +163,12 @@ void ctrlCSignal(int signal)
 {
 	/* Free system V resources */
 	cleanUp(shmid, msqid, sharedMemPtr);
+	exit(0);
 }
 
 int main(int argc, char** argv)
 {
-	
+	fprintf(stdout, "%s: waiting for a message...\n", argv[0]);	
 	/* TODO: Install a singnal handler (see signaldemo.cpp sample file).
  	 * In a case user presses Ctrl-c your program should delete message
  	 * queues and shared memory before exiting. You may add the cleaning functionality
@@ -178,7 +184,7 @@ int main(int argc, char** argv)
 	init(shmid, msqid, sharedMemPtr);
 	
 	/* Go to the main loop */
-	mainLoop();
+	mainLoop(); 
 
 	/** TODO: Detach from shared memory segment, and deallocate shared memory and message queue (i.e. call cleanup) **/
 	cleanUp(shmid, msqid, sharedMemPtr);	
