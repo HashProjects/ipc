@@ -38,7 +38,7 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 		    may have the same key.
 	 */
 	key_t key;
-	key = ftok("keyfile.txt", 'a');
+	key = ftok("keyfile.txt", 'b');
 	if (key == -1) {
 		fprintf(stderr, "Failed to generate key: %s\n", strerror(errno));
 		exit(-1);
@@ -83,7 +83,10 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
 {
 	/* TODO: Detach from shared memory */
-	shmdt(sharedMemPtr);
+	int result = shmdt(sharedMemPtr);
+	if (result == -1) {
+		fprintf(stderr, "failed to deatach memory\n", strerror(errno));
+	}
 }
 
 /**
@@ -119,8 +122,9 @@ void send(const char* fileName)
  		 */
 		if((sndMsg.size = fread(sharedMemPtr, sizeof(char), SHARED_MEMORY_CHUNK_SIZE, fp)) < 0)
 		{
-			perror("fread");
+			perror("failed to read from file\n");
 			cleanUp(shmid, msqid, sharedMemPtr);
+			fclose(fp);
 			exit(-1);
 		}
 		
@@ -132,13 +136,16 @@ void send(const char* fileName)
 		int result = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
 		if (result == -1) {
 			fprintf(stderr, "failed to send message to receiver: %s\n", strerror(errno));
-			cleanUp(shmid, msqid, sharedMemPtr);
-			exit(-1);
+			break;
 		}
 		/* TODO: Wait until the receiver sends us a message of type RECV_DONE_TYPE telling us 
  		 * that he finished saving the memory chunk. 
  		 */ 
-	    msgrcv(msqid, &rcvMsg, sizeof(rcvMsg), RECV_DONE_TYPE, 0);
+	    result = msgrcv(msqid, &rcvMsg, sizeof(rcvMsg), RECV_DONE_TYPE, 0);
+		if (result == -1) {
+			fprintf(stderr, "failed to send message to receiver: %s\n", strerror(errno));
+			break;
+		}
 	
 
 	}
@@ -150,8 +157,12 @@ void send(const char* fileName)
 	  */
 	sndMsg.mtype = SENDER_DATA_TYPE;
 	sndMsg.size = 0;
-	msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
-	fprintf(stdout, "sending message to receiver: %d bytes left, finished.\n", sndMsg.size);
+	int result = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
+	if (result != -1) {
+		fprintf(stdout, "sending message to receiver: %d bytes left, finished.\n", sndMsg.size);
+	} else {
+		fprintf(stdout, "sending message to receiver failed: %s\n", strerror(errno));
+	}
 		
 	/* Close the file */
 	fclose(fp);

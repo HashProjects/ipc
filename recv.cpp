@@ -3,6 +3,8 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <errno.h>
 #include <unistd.h>
 //#include <cerror>
 #include "msg.h"    /* For the message struct */
@@ -19,6 +21,8 @@ void *sharedMemPtr;
 
 /* The name of the received file */
 const char recvFileName[] = "recvfile";
+
+void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr);
 
 
 /**
@@ -43,12 +47,18 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 	 */
 	
 	key_t key;
-	key = ftok("keyfile.txt", 'a');
-
+	key = ftok("keyfile.txt", 'b');
+	if (key == -1) {
+		fprintf(stderr, "Failed to generate key: %s\n", strerror(errno));
+		exit(-1);
+	}
 	
 	/* TODO: Allocate a piece of shared memory. The size of the segment must be SHARED_MEMORY_CHUNK_SIZE. */
 	shmid = shmget(key, SHARED_MEMORY_CHUNK_SIZE, 0666 | IPC_CREAT);
-
+	if (shmid == -1) {
+		fprintf(stderr, "failed to obtain shared memory: %s\n", strerror(errno));
+		exit(-1);
+	}
 	
 	/* TODO: Attach to the shared memory */
 	sharedMemPtr = shmat(shmid, NULL, 0);
@@ -75,7 +85,8 @@ void mainLoop()
 	/* Error checks */
 	if(!fp)
 	{
-		perror("fopen");	
+		fprintf(stderr, "failed to open file for received data: %s\n", recvFileName);	
+		cleanUp(shmid, msqid, sharedMemPtr);
 		exit(-1);
 	}
 		
@@ -91,8 +102,12 @@ void mainLoop()
      */
 	message msg;
 
-	int r = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
-	printf("message received %d bytes (memory size to read: %d)\n", r, msg.size);
+	int result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
+	if (result != -1) {
+		fprintf(stdout, "message received %d bytes (memory size to read: %d)\n", result, msg.size);
+	} else {
+		fprintf(stderr, "message receive failed: %s\n", strerror(errno));
+	}
 	msgSize = msg.size;
 
 	/* Keep receiving until the sender set the size to 0, indicating that
@@ -108,6 +123,8 @@ void mainLoop()
 			if(fwrite(sharedMemPtr, sizeof(char), msgSize, fp) < 0)
 			{
 				perror("fwrite");
+				cleanUp(shmid, msqid, sharedMemPtr);
+				break;
 			}
 			
 			/* TODO: Tell the sender that we are ready for the next file chunk. 
@@ -116,11 +133,22 @@ void mainLoop()
  			 */
 			msg.mtype = RECV_DONE_TYPE;
 			
-			msgsnd(msqid, &msg, sizeof(msg), 0);
-			printf("message sent: RECV_DONE_TYPE\n");
+			result = msgsnd(msqid, &msg, sizeof(msg), 0);
+			if (result != -1) {
+				fprintf(stdout, "message sent: RECV_DONE_TYPE\n");
+			} else {
+				fprintf(stderr, "message sent failure: %s\n", strerror(errno));
+				break;
+			}
 
-			msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
-			printf("message received %d bytes (memory size: %d)\n", r, msg.size);
+			result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
+			
+			if (result != -1) {
+				fprintf(stdout, "message received %d bytes (memory size: %d)\n", result, msg.size);
+			} else {
+				fprintf(stderr, "message receive failure: %s\n", strerror(errno));
+				break;
+			}
 			msgSize = msg.size;
 		}
 		/* We are done */
@@ -147,11 +175,20 @@ void mainLoop()
 void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
 {
 	/* TODO: Detach from shared memory */
-	shmdt(sharedMemPtr);
+	int result = shmdt(sharedMemPtr);
+	if (result == -1) {
+		fprintf(stderr, "Failed to detach shared memory: %s\n", strerror(errno));
+	}
 	/* TODO: Deallocate the shared memory chunk */
-	shmctl(shmid, IPC_RMID, NULL);
+	result = shmctl(shmid, IPC_RMID, NULL);
+	if (result == -1) {
+		fprintf(stderr, "Failed to deallocate the shared memory: %s\n", strerror(errno));
+	}
 	/* TODO: Deallocate the message queue */
-	msgctl(msqid, IPC_RMID, NULL);
+	result = msgctl(msqid, IPC_RMID, NULL);
+	if (result == -1) {
+		fprintf(stderr, "Failed to deallocate message queue: %s\n", strerror(errno));
+	}
 }
 
 /**
