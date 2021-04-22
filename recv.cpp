@@ -14,10 +14,10 @@
 #define SHARED_MEMORY_CHUNK_SIZE 1000
 
 /* The ids for the shared memory segment and the message queue */
-int shmid, msqid;
+int shmid = -1, msqid = -1;
 
 /* The pointer to the shared memory */
-void *sharedMemPtr;
+void *sharedMemPtr = (void*)-1;
 
 /* The name of the received file */
 const char recvFileName[] = "recvfile";
@@ -57,15 +57,24 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 	shmid = shmget(key, SHARED_MEMORY_CHUNK_SIZE, 0666 | IPC_CREAT);
 	if (shmid == -1) {
 		fprintf(stderr, "failed to obtain shared memory: %s\n", strerror(errno));
+		cleanUp(shmid, msqid, sharedMemPtr);
 		exit(-1);
 	}
 	
 	/* TODO: Attach to the shared memory */
 	sharedMemPtr = shmat(shmid, NULL, 0);
-
+	if (sharedMemPtr == (void*)-1) {
+		fprintf(stderr, "failed to obtain shared memory pointer: %s\n", strerror(errno));
+		cleanUp(shmid, msqid, sharedMemPtr);
+		exit(-1);
+	}
 	/* TODO: Create a message queue */
 	msqid = msgget(key, 0666 | IPC_CREAT);
-
+	if (msqid == -1) {
+		fprintf(stderr, "failed to obtain message queue: %s\n", strerror(errno));
+		cleanUp(shmid, msqid, sharedMemPtr);
+		exit(-1);
+	}
 	/* Store the IDs and the pointer to the shared memory region in the corresponding parameters */
 	
 }
@@ -123,13 +132,11 @@ void mainLoop()
 
 	while(msgSize != 0)
 	{	
-		/* If the sender is not telling us that we are done, then get to work */
-		if(msgSize != 0)
-		{
+
 			/* Save the shared memory to file */
 			if(fwrite(sharedMemPtr, sizeof(char), msgSize, fp) < 0)
 			{
-				perror("fwrite");
+				fprintf(stderr, "writing to file failure: %s\n", strerror(errno));
 				cleanUp(shmid, msqid, sharedMemPtr);
 				break;
 			}
@@ -141,9 +148,7 @@ void mainLoop()
 			msg.mtype = RECV_DONE_TYPE;
 			
 			result = msgsnd(msqid, &msg, sizeof(msg), 0);
-			if (result != -1) {
-				//fprintf(stdout, "message sent: RECV_DONE_TYPE\n");
-			} else {
+			if (result == -1) {
 				fprintf(stderr, "message sent failure: %s\n", strerror(errno));
 				break;
 			}
@@ -152,14 +157,14 @@ void mainLoop()
 			
 			if (result != -1) {
 				fileSizeCounter += msg.size;
-				fprintf(stdout, "Reading block %d (%d bytes)              \r", blockCounter++, fileSizeCounter);
+				fprintf(stdout, "Reading block %d (%d bytes)                \r", blockCounter++, fileSizeCounter);
 				fflush(stdout);
 			} else {
 				fprintf(stderr, "message receive failure: %s\n", strerror(errno));
 				break;
 			}
 			msgSize = msg.size;
-		}
+		
 	}
 	
 	/* Close the file */

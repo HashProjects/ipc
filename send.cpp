@@ -102,10 +102,6 @@ void send(const char* fileName)
 	struct stat statbuf;
 	int sentFileSize = 0;
 
-	if (stat(fileName, &statbuf) == -1) {
-  		fprintf(stderr, "File does not exist or is not accessible: %s\n", fileName);
-		return;
-	}
 	int result = 0; // most recent error code
 	bool waiting = true;
 
@@ -121,6 +117,11 @@ void send(const char* fileName)
   		fprintf(stderr, "File does not exist or is not accessible: %s\n", fileName);
 		cleanUp(shmid, msqid, sharedMemPtr);
 		exit(-1);
+	}
+
+	if (stat(fileName, &statbuf) == -1) {
+  		fprintf(stderr, "File does not exist or is not accessible: %s\n", fileName);
+		return;
 	}
 
 	fprintf(stdout, "Sending %s\n", fileName);
@@ -144,11 +145,10 @@ void send(const char* fileName)
 		/* TODO: Send a message to the receiver telling him that the data is ready 
  		 * (message of type SENDER_DATA_TYPE) 
  		 */
-		//fprintf(stdout, "Sending message to receiver: %d bytes are ready to read\n", sndMsg.size);
 		fprintf(stdout, "File transfer: %.2lf%% complete. %s                                 \r", 
 			sentFileSize * 100.0 /statbuf.st_size, (waiting ? " Waiting for receiver..." : ""));
 		fflush(stdout);
-		//sleep(1);
+
 		sndMsg.mtype = SENDER_DATA_TYPE;
 		result = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
 		if (result == -1) {
