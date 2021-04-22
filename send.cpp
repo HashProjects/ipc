@@ -13,19 +13,18 @@
 #define SHARED_MEMORY_CHUNK_SIZE 1000
 
 /* The ids for the shared memory segment and the message queue */
-int shmid, msqid;
+int shmid;
 
 /* The pointer to the shared memory */
 void* sharedMemPtr;
 
-void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr);
+void cleanUp(const int& shmid, void* sharedMemPtr);
+
 /**
  * Sets up the shared memory segment and message queue
  * @param shmid - the id of the allocated shared memory 
- * @param msqid - the id of the shared memory
  */
-
-void init(int& shmid, int& msqid, void*& sharedMemPtr)
+void init(int& shmid, void*& sharedMemPtr)
 {
 	/* TODO: 
         1. Create a file called keyfile.txt containing string "Hello world" (you may do
@@ -62,30 +61,21 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 		exit(-1);
 	}
 	
-	/* TODO: Attach to the message queue */
-	// msqid = msgget(key, 0666 | IPC_CREAT);
-	// if (msqid == -1) {
-	// 	fprintf(stderr, "failed to obtain message queue: %s\n", strerror(errno));
-	// 	cleanUp(shmid, msqid, sharedMemPtr);
-	// 	exit(-1);
-	// }
 	/* Store the IDs and the pointer to the shared memory region in the corresponding parameters */
 	
 	// shmid_ds *shmInfo = (shmid_ds*) malloc(sizeof(shmid_ds));
 	// shmctl(shmid, IPC_STAT, shmInfo);
 	// printf("init pid=%d ppid=%d\n", getpid(), getppid());
 	// printf("cpid=%d lpid=%d\n", shmInfo->shm_cpid, shmInfo->shm_lpid);
-
 }
 
 /**
  * Performs the cleanup functions
  * @param sharedMemPtr - the pointer to the shared memory
  * @param shmid - the id of the shared memory segment
- * @param msqid - the id of the message queue
  */
 
-void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
+void cleanUp(const int& shmid, void* sharedMemPtr)
 {
 	/* TODO: Detach from shared memory */
 	if (shmdt(sharedMemPtr) == -1) {
@@ -110,7 +100,6 @@ void send(const char* fileName)
 	do {
 		// Read info on shared memory segment
 		shmctl(shmid, IPC_STAT, shmInfo);
-		//fprintf(stdout, "self= %dcpid=%d lpid=%d", selfpid, shmInfo->shm_cpid, shmInfo->shm_lpid);
 		// Find PID of receiver: when receiver attaches,
 		// its PID is stored in shm_lpid
 		if (shmInfo->shm_lpid != selfpid) {
@@ -127,20 +116,17 @@ void send(const char* fileName)
 	sigemptyset(&sigs);
 	sigaddset(&sigs, SIGUSR2);
 
+	// Data struct to be sent along with signal
+	union sigval *sigdata = (union sigval*)malloc(sizeof(union sigval));
+
 	/* Open the file for reading */
 	FILE* fp = fopen(fileName, "r");
-	
-	/* A buffer to store message we will send to the receiver. */
-	// message sndMsg; 
-	
-	/* A buffer to store message received from the receiver. */
-	// message rcvMsg;
 	
 	/* Was the file open? */
 	if(!fp)
 	{
 		perror("fopen");
-		cleanUp(shmid, msqid, sharedMemPtr);
+		cleanUp(shmid, sharedMemPtr);
 		exit(-1);
 	}
 
@@ -155,7 +141,7 @@ void send(const char* fileName)
 		bytesRead = fread(sharedMemPtr, sizeof(char), SHARED_MEMORY_CHUNK_SIZE, fp);
 		if (bytesRead < 0) {
 			perror("failed to read from file\n");
-			cleanUp(shmid, msqid, sharedMemPtr);
+			cleanUp(shmid, sharedMemPtr);
 			fclose(fp);
 			exit(-1);
 		}
@@ -164,11 +150,10 @@ void send(const char* fileName)
  		 * and number of bytes sent in shared memory
  		 */
 		fprintf(stdout, "Sending signal to receiver: %d bytes ready to read\n", bytesRead);
-		union sigval *sigdata = (union sigval*)malloc(sizeof(union sigval));
 		sigdata->sival_int = bytesRead;
 		if (sigqueue(recvpid, SIGUSR1, *sigdata) != 0) {
 			fprintf(stderr, "Failed to signal receiver. %s\n", strerror(errno));
-			cleanUp(shmid, msqid, sharedMemPtr);
+			cleanUp(shmid, sharedMemPtr);
 			exit(-1);
 		}
 
@@ -178,7 +163,7 @@ void send(const char* fileName)
 		int signal;
 		if (sigwait(&sigs, &signal) != 0) {
 			fprintf(stderr, "Failed to receive signal from sender. %s\n", strerror(errno));
-			cleanUp(shmid, msqid, sharedMemPtr);
+			cleanUp(shmid, sharedMemPtr);
 			exit(-1);
 		}
 	}
@@ -191,10 +176,11 @@ void send(const char* fileName)
 	bytesRead = 0;
 	if (sigqueue(recvpid, SIGUSR1, sigval {bytesRead}) != 0) {
 		fprintf(stderr, "Failed to signal receiver. %s\n", strerror(errno));
-		cleanUp(shmid, msqid, sharedMemPtr);
+		cleanUp(shmid, sharedMemPtr);
 		exit(-1);
 	}
 	
+	free(sigdata);
 	/* Close the file */
 	fclose(fp);
 }
@@ -206,7 +192,7 @@ void send(const char* fileName)
 void ctrlCSignal(int signal)
 {
 	/* Free system V resources */
-	cleanUp(shmid, msqid, sharedMemPtr);
+	cleanUp(shmid, sharedMemPtr);
 	exit(0);
 }
 
@@ -225,13 +211,13 @@ int main(int argc, char** argv)
 	fprintf(stdout, "sending %s\n", argv[1]);
 		
 	/* Connect to shared memory and the message queue */
-	init(shmid, msqid, sharedMemPtr);
+	init(shmid, sharedMemPtr);
 	
 	/* Send the file */
 	send(argv[1]);
 	
 	/* Cleanup */
-	cleanUp(shmid, msqid, sharedMemPtr);
+	cleanUp(shmid, sharedMemPtr);
 		
 	return 0;
 }

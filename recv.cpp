@@ -66,9 +66,8 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 	shmid_ds *shmInfo = (shmid_ds*) malloc(sizeof(shmid_ds));
 	shmctl(shmid, IPC_STAT, shmInfo);
 	sendpid = shmInfo->shm_lpid;
+	printf("init: pid=%d cpid=%d lpid=%d\n", getpid(), shmInfo->shm_cpid, shmInfo->shm_lpid);
 	free(shmInfo);
-	printf("init pid=%d ppid=%d\n", getpid(), getppid());
-	printf("cpid=%d lpid=%d\n", shmInfo->shm_cpid, shmInfo->shm_lpid);
 
 	/* TODO: Attach to the shared memory */
 	sharedMemPtr = shmat(shmid, NULL, 0);
@@ -84,7 +83,6 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
  */
 void mainLoop()
 {
-	
 	/* Open the file for writing */
 	FILE* fp = fopen(recvFileName, "w");
 		
@@ -95,7 +93,8 @@ void mainLoop()
 		cleanUp(shmid, msqid, sharedMemPtr);
 		exit(-1);
 	}
-		
+			printf("here");
+	
     /* TODO: Receive the signal and get the message size. If the size is not 0, 
 	 * then we copy that many bytes from the shared
      * memory region to the file. Otherwise, if 0, then we close the file and
@@ -110,86 +109,47 @@ void mainLoop()
 	sigemptyset(&sigs);
 	sigaddset(&sigs, SIGUSR1);
 
-	// struct sigaction *act = (struct sigaction*)malloc(sizeof(struct sigaction));
-	//act->sa_sigaction = handler;
-	// act->sa_flags = SA_SIGINFO;
+	struct sigaction act = { .sa_flags = SA_SIGINFO};
 	
+	sigaction(SIGUSR1, &act, NULL);
+
+	// Data struct sent along with signal
 	siginfo_t *siginfo = (siginfo_t*)malloc(sizeof(siginfo_t));
+	// Wait for signal from sender
 	sigwaitinfo(&sigs, siginfo);
-
+	// Extract number of bytes sent
 	int msgSize;
-	// Doesn't work. siginfo_t should have this field?
-	// msgSize = siginfo->si_value;
-
-	message msg;
-
-	int result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
-	if (result != -1) {
-		fprintf(stdout, "message received %d bytes (memory size to read: %d)\n", result, msg.size);
-	} else {
-		fprintf(stderr, "message receive failed: %s\n", strerror(errno));
-	}
-	msgSize = msg.size;
-
-
+	msgSize = siginfo->_sifields._rt.si_sigval.sival_int;
+	printf("msgsize=%d\n", msgSize);
 	/* Keep receiving until the sender set the size to 0, indicating that
  	 * there is no more data to send
  	 */	
 	while(msgSize != 0)
 	{	
-		/* If the sender is not telling us that we are done, then get to work */
-		if(msgSize != 0)
+		/* Save the shared memory to file */
+		if(fwrite(sharedMemPtr, sizeof(char), msgSize, fp) < 0)
 		{
-			/* Save the shared memory to file */
-			if(fwrite(sharedMemPtr, sizeof(char), msgSize, fp) < 0)
-			{
-				perror("fwrite");
-				cleanUp(shmid, msqid, sharedMemPtr);
-				break;
-			}
-			
-			/* TODO: Tell the sender that we are ready for the next file chunk. 
- 			 * by sending a SIGUSR2 signal. 
- 			 */
-			msg.mtype = RECV_DONE_TYPE;
-			result = msgsnd(msqid, &msg, sizeof(msg), 0);
-			if (result != -1) {
-				fprintf(stdout, "message sent: RECV_DONE_TYPE\n");
-			} else {
-				fprintf(stderr, "message sent failure: %s\n", strerror(errno));
-				break;
-			}
-
-			// Wait for SIGUSR1 from sender
-			int signal;
-			if (sigwait(&sigs, &signal) != 0) {
-				fprintf(stderr, "Failed to receive signal from sender. %s\n", strerror(errno));
-				cleanUp(shmid, msqid, sharedMemPtr);
-				exit(-1);
-			}
-
-			// result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
-			// if (result != -1) {
-			// 	fprintf(stdout, "message received %d bytes (memory size: %d)\n", result, msg.size);
-			// } else {
-			// 	fprintf(stderr, "message receive failure: %s\n", strerror(errno));
-			// 	break;
-			// }
-			msgSize = msg.size;
+			perror("fwrite");
+			cleanUp(shmid, msqid, sharedMemPtr);
+			break;
 		}
-		/* We are done */
-		else
-		{
+		
+		/* TODO: Tell the sender that we are ready for the next file chunk. 
+		 * by sending a SIGUSR2 signal.
+		 */
+		kill(sendpid, SIGUSR2);
 
-		}
+		// Wait for SIGUSR1 from sender
+		sigwaitinfo(&sigs, siginfo);
+		// Extract number of bytes sent
+		msgSize = siginfo->_sifields._rt.si_sigval.sival_int;
 	}
 	
+	free(siginfo);
 	/* Close the file */
 	fprintf(stdout, "Transfer complete. Closing file\n");
 	fclose(fp);
 }
-
-
 
 /**
  * Perfoms the cleanup functions
@@ -201,18 +161,15 @@ void mainLoop()
 void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
 {
 	/* TODO: Detach from shared memory */
-	int result = shmdt(sharedMemPtr);
-	if (result == -1) {
+	if (shmdt(sharedMemPtr) == -1) {
 		fprintf(stderr, "Failed to detach shared memory: %s\n", strerror(errno));
 	}
 	/* TODO: Deallocate the shared memory chunk */
-	result = shmctl(shmid, IPC_RMID, NULL);
-	if (result == -1) {
+	if (shmctl(shmid, IPC_RMID, NULL) == -1) {
 		fprintf(stderr, "Failed to deallocate the shared memory: %s\n", strerror(errno));
 	}
 	/* TODO: Deallocate the message queue */
-	result = msgctl(msqid, IPC_RMID, NULL);
-	if (result == -1) {
+	if (msgctl(msqid, IPC_RMID, NULL) == -1) {
 		fprintf(stderr, "Failed to deallocate message queue: %s\n", strerror(errno));
 	}
 }
