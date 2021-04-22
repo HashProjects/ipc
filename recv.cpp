@@ -6,9 +6,8 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
-//#include <cerror>
+#include <cerrno>
 #include "msg.h"    /* For the message struct */
-
 
 /* The size of the shared memory chunk */
 #define SHARED_MEMORY_CHUNK_SIZE 1000
@@ -22,8 +21,10 @@ void *sharedMemPtr;
 /* The name of the received file */
 const char recvFileName[] = "recvfile";
 
-void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr);
+/* The PID of the sender */
+pid_t sendpid;
 
+void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr);
 
 /**
  * Sets up the shared memory segment and message queue
@@ -47,7 +48,7 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 	 */
 	
 	key_t key;
-	key = ftok("keyfile.txt", 'b');
+	key = ftok("keyfile.txt", 'a');
 	if (key == -1) {
 		fprintf(stderr, "Failed to generate key: %s\n", strerror(errno));
 		exit(-1);
@@ -60,6 +61,15 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 		exit(-1);
 	}
 	
+	// Get PID of the sender. Sender performed the last shared
+	// memory operation so its PID is stored in shm_lpid
+	shmid_ds *shmInfo = (shmid_ds*) malloc(sizeof(shmid_ds));
+	shmctl(shmid, IPC_STAT, shmInfo);
+	sendpid = shmInfo->shm_lpid;
+	free(shmInfo);
+	printf("init pid=%d ppid=%d\n", getpid(), getppid());
+	printf("cpid=%d lpid=%d\n", shmInfo->shm_cpid, shmInfo->shm_lpid);
+
 	/* TODO: Attach to the shared memory */
 	sharedMemPtr = shmat(shmid, NULL, 0);
 
@@ -67,17 +77,13 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 	msqid = msgget(key, 0666 | IPC_CREAT);
 
 	/* Store the IDs and the pointer to the shared memory region in the corresponding parameters */
-	
 }
- 
 
 /**
  * The main loop
  */
 void mainLoop()
 {
-	/* The size of the mesage */
-	int msgSize = 0;
 	
 	/* Open the file for writing */
 	FILE* fp = fopen(recvFileName, "w");
@@ -90,16 +96,27 @@ void mainLoop()
 		exit(-1);
 	}
 		
-    /* TODO: Receive the message and get the message size. The message will 
-     * contain regular information. The message will be of SENDER_DATA_TYPE
-     * (the macro SENDER_DATA_TYPE is defined in msg.h).  If the size field
-     * of the message is not 0, then we copy that many bytes from the shared
+    /* TODO: Receive the signal and get the message size. If the size is not 0, 
+	 * then we copy that many bytes from the shared
      * memory region to the file. Otherwise, if 0, then we close the file and
      * exit.
      *
      * NOTE: the received file will always be saved into the file called
      * "recvfile"
      */
+	/* The size of the mesage */
+	int msgSize = 0;
+
+	struct sigaction *act;
+	act = (struct sigaction*) malloc (sizeof(struct sigaction));
+	//act -> sa_sigaction = handler;
+	act -> sa_flags = SA_SIGINFO;
+	
+	sigset_t sigs;
+	sigemptyset(&sigs);
+	sigaddset(&sigs, SIGUSR1);
+
+
 	message msg;
 
 	int result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
@@ -110,10 +127,12 @@ void mainLoop()
 	}
 	msgSize = msg.size;
 
+
+
+
 	/* Keep receiving until the sender set the size to 0, indicating that
  	 * there is no more data to send
  	 */	
-
 	while(msgSize != 0)
 	{	
 		/* If the sender is not telling us that we are done, then get to work */
