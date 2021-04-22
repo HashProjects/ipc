@@ -104,18 +104,22 @@ void mainLoop()
      * NOTE: the received file will always be saved into the file called
      * "recvfile"
      */
-	/* The size of the mesage */
-	int msgSize = 0;
-
-	struct sigaction *act;
-	act = (struct sigaction*) malloc (sizeof(struct sigaction));
-	//act -> sa_sigaction = handler;
-	act -> sa_flags = SA_SIGINFO;
-	
+	// Set of signals to wait for from sender
+	// SIGUSR1 = read from shared memory
 	sigset_t sigs;
 	sigemptyset(&sigs);
 	sigaddset(&sigs, SIGUSR1);
 
+	// struct sigaction *act = (struct sigaction*)malloc(sizeof(struct sigaction));
+	//act->sa_sigaction = handler;
+	// act->sa_flags = SA_SIGINFO;
+	
+	siginfo_t *siginfo = (siginfo_t*)malloc(sizeof(siginfo_t));
+	sigwaitinfo(&sigs, siginfo);
+
+	int msgSize;
+	// Doesn't work. siginfo_t should have this field?
+	// msgSize = siginfo->si_value;
 
 	message msg;
 
@@ -126,8 +130,6 @@ void mainLoop()
 		fprintf(stderr, "message receive failed: %s\n", strerror(errno));
 	}
 	msgSize = msg.size;
-
-
 
 
 	/* Keep receiving until the sender set the size to 0, indicating that
@@ -147,11 +149,9 @@ void mainLoop()
 			}
 			
 			/* TODO: Tell the sender that we are ready for the next file chunk. 
- 			 * I.e. send a message of type RECV_DONE_TYPE (the value of size field
- 			 * does not matter in this case). 
+ 			 * by sending a SIGUSR2 signal. 
  			 */
 			msg.mtype = RECV_DONE_TYPE;
-			
 			result = msgsnd(msqid, &msg, sizeof(msg), 0);
 			if (result != -1) {
 				fprintf(stdout, "message sent: RECV_DONE_TYPE\n");
@@ -160,14 +160,21 @@ void mainLoop()
 				break;
 			}
 
-			result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
-			
-			if (result != -1) {
-				fprintf(stdout, "message received %d bytes (memory size: %d)\n", result, msg.size);
-			} else {
-				fprintf(stderr, "message receive failure: %s\n", strerror(errno));
-				break;
+			// Wait for SIGUSR1 from sender
+			int signal;
+			if (sigwait(&sigs, &signal) != 0) {
+				fprintf(stderr, "Failed to receive signal from sender. %s\n", strerror(errno));
+				cleanUp(shmid, msqid, sharedMemPtr);
+				exit(-1);
 			}
+
+			// result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
+			// if (result != -1) {
+			// 	fprintf(stdout, "message received %d bytes (memory size: %d)\n", result, msg.size);
+			// } else {
+			// 	fprintf(stderr, "message receive failure: %s\n", strerror(errno));
+			// 	break;
+			// }
 			msgSize = msg.size;
 		}
 		/* We are done */
@@ -214,7 +221,6 @@ void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
  * Handles the exit signal
  * @param signal - the signal type
  */
-
 void ctrlCSignal(int signal)
 {
 	/* Free system V resources */

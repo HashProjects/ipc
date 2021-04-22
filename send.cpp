@@ -52,16 +52,15 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 	
 	shmid = shmget(key, SHARED_MEMORY_CHUNK_SIZE, 0666 | IPC_CREAT);
 	if (shmid == -1) {
-		fprintf(stderr, "failed to obtain shared memory: %s\n", strerror(errno));
+		fprintf(stderr, "Failed to obtain shared memory: %s\n", strerror(errno));
 		exit(-1);
 	}
 
 	sharedMemPtr = shmat(shmid, NULL, IPC_CREAT);
 	if (sharedMemPtr == (void*)-1) {
-		fprintf(stderr, "failed to obtain shared memory pointer: %s\n", strerror(errno));
+		fprintf(stderr, "Failed to obtain shared memory pointer: %s\n", strerror(errno));
 		exit(-1);
 	}
-	
 	
 	/* TODO: Attach to the message queue */
 	// msqid = msgget(key, 0666 | IPC_CREAT);
@@ -89,9 +88,8 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
 {
 	/* TODO: Detach from shared memory */
-	int result = shmdt(sharedMemPtr);
-	if (result == -1) {
-		fprintf(stderr, "failed to detach shared memory: %s\n", strerror(errno));
+	if (shmdt(sharedMemPtr) == -1) {
+		fprintf(stderr, "Failed to detach shared memory: %s\n", strerror(errno));
 	}
 }
 
@@ -122,6 +120,12 @@ void send(const char* fileName)
 	} while (recvpid == -1);
 	free(shmInfo);
 	printf("recvpid=%d\n", recvpid);
+
+	// Set of signals to wait for from receiver
+	// SIGUSR2 = ready to receive more
+	sigset_t sigs;
+	sigemptyset(&sigs);
+	sigaddset(&sigs, SIGUSR2);
 
 	/* Open the file for reading */
 	FILE* fp = fopen(fileName, "r");
@@ -159,8 +163,10 @@ void send(const char* fileName)
 		/* TODO: Send a signal SIGUSR1 to the receiver telling him that the data is ready 
  		 * and number of bytes sent in shared memory
  		 */
-		fprintf(stdout, "sending message to receiver: %d bytes are ready to read\n", bytesRead);
-		if (sigqueue(recvpid, SIGUSR1, sigval {bytesRead}) != 0) {
+		fprintf(stdout, "Sending signal to receiver: %d bytes ready to read\n", bytesRead);
+		union sigval *sigdata = (union sigval*)malloc(sizeof(union sigval));
+		sigdata->sival_int = bytesRead;
+		if (sigqueue(recvpid, SIGUSR1, *sigdata) != 0) {
 			fprintf(stderr, "Failed to signal receiver. %s\n", strerror(errno));
 			cleanUp(shmid, msqid, sharedMemPtr);
 			exit(-1);
@@ -169,10 +175,6 @@ void send(const char* fileName)
 		/* TODO: Wait until the receiver sends us a signal SIGUSR2 telling us 
  		 * that he finished saving the memory chunk. 
  		 */
-		/* Signals to wait for from receiver */
-		sigset_t sigs;
-		sigemptyset(&sigs);
-		sigaddset(&sigs, SIGUSR2);
 		int signal;
 		if (sigwait(&sigs, &signal) != 0) {
 			fprintf(stderr, "Failed to receive signal from sender. %s\n", strerror(errno));
