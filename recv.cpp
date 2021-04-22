@@ -101,10 +101,17 @@ void mainLoop()
      * "recvfile"
      */
 	message msg;
+	int blockCounter = 1;
+	int fileSizeCounter = 0;
+
+	fprintf(stdout, "Waiting for file transfer to begin...\r");
+	fflush(stdout);
 
 	int result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
 	if (result != -1) {
-		fprintf(stdout, "message received %d bytes (memory size to read: %d)\n", result, msg.size);
+		fileSizeCounter += msg.size;
+		fprintf(stdout, "Reading block %d (%d bytes transferred)\r", blockCounter++, fileSizeCounter);
+		fflush(stdout);
 	} else {
 		fprintf(stderr, "message receive failed: %s\n", strerror(errno));
 	}
@@ -135,7 +142,7 @@ void mainLoop()
 			
 			result = msgsnd(msqid, &msg, sizeof(msg), 0);
 			if (result != -1) {
-				fprintf(stdout, "message sent: RECV_DONE_TYPE\n");
+				//fprintf(stdout, "message sent: RECV_DONE_TYPE\n");
 			} else {
 				fprintf(stderr, "message sent failure: %s\n", strerror(errno));
 				break;
@@ -144,22 +151,23 @@ void mainLoop()
 			result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
 			
 			if (result != -1) {
-				fprintf(stdout, "message received %d bytes (memory size: %d)\n", result, msg.size);
+				fileSizeCounter += msg.size;
+				fprintf(stdout, "Reading block %d (%d bytes)              \r", blockCounter++, fileSizeCounter);
+				fflush(stdout);
 			} else {
 				fprintf(stderr, "message receive failure: %s\n", strerror(errno));
 				break;
 			}
 			msgSize = msg.size;
 		}
-		/* We are done */
-		else
-		{
-
-		}
 	}
 	
 	/* Close the file */
-	fprintf(stdout, "Transfer complete. Closing file\n");
+	if (result != -1) {
+		fprintf(stdout, "File transfer complete (%d bytes)       \n", fileSizeCounter);
+	} else {
+		fprintf(stdout, "File transfer failed.                   \n");
+	}
 	fclose(fp);
 }
 
@@ -199,13 +207,14 @@ void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
 void ctrlCSignal(int signal)
 {
 	/* Free system V resources */
+	fprintf(stdout, "File transfer canceled.                    \n");
+	fflush(stdout);
 	cleanUp(shmid, msqid, sharedMemPtr);
 	exit(0);
 }
 
 int main(int argc, char** argv)
 {
-	fprintf(stdout, "%s: waiting for a message...\n", argv[0]);	
 	/* TODO: Install a singnal handler (see signaldemo.cpp sample file).
  	 * In a case user presses Ctrl-c your program should delete message
  	 * queues and shared memory before exiting. You may add the cleaning functionality

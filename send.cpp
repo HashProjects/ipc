@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/stat.h>
 #include "msg.h"    /* For the message struct */
 
 /* The size of the shared memory chunk */
@@ -97,7 +98,16 @@ void send(const char* fileName)
 {
 	/* Open the file for reading */
 	FILE* fp = fopen(fileName, "r");
-	
+
+	struct stat statbuf;
+	int sentFileSize = 0;
+
+	if (stat(fileName, &statbuf) == -1) {
+  		fprintf(stderr, "File does not exist or is not accessible: %s\n", fileName);
+		return;
+	}
+	int result = 0; // most recent error code
+	bool waiting = true;
 
 	/* A buffer to store message we will send to the receiver. */
 	message sndMsg; 
@@ -108,10 +118,13 @@ void send(const char* fileName)
 	/* Was the file open? */
 	if(!fp)
 	{
-		perror("fopen");
+  		fprintf(stderr, "File does not exist or is not accessible: %s\n", fileName);
 		cleanUp(shmid, msqid, sharedMemPtr);
 		exit(-1);
 	}
+
+	fprintf(stdout, "Sending %s\n", fileName);
+
 	
 	/* Read the whole file */
 	while(!feof(fp))
@@ -122,20 +135,24 @@ void send(const char* fileName)
  		 */
 		if((sndMsg.size = fread(sharedMemPtr, sizeof(char), SHARED_MEMORY_CHUNK_SIZE, fp)) < 0)
 		{
-			perror("failed to read from file\n");
+			perror("failed to read from file. Was the receiver process killed?\n");
 			cleanUp(shmid, msqid, sharedMemPtr);
 			fclose(fp);
 			exit(-1);
 		}
-		
+		sentFileSize += sndMsg.size;
 		/* TODO: Send a message to the receiver telling him that the data is ready 
  		 * (message of type SENDER_DATA_TYPE) 
  		 */
-		fprintf(stdout, "sending message to receiver: %d bytes are ready to read\n", sndMsg.size);
+		//fprintf(stdout, "Sending message to receiver: %d bytes are ready to read\n", sndMsg.size);
+		fprintf(stdout, "File transfer: %.2lf%% complete. %s                                 \r", 
+			sentFileSize * 100.0 /statbuf.st_size, (waiting ? " Waiting for receiver..." : ""));
+		fflush(stdout);
+		//sleep(1);
 		sndMsg.mtype = SENDER_DATA_TYPE;
-		int result = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
+		result = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
 		if (result == -1) {
-			fprintf(stderr, "failed to send message to receiver: %s\n", strerror(errno));
+			fprintf(stderr, "failed to send message to receiver: Was the receiver process killed?\n");
 			break;
 		}
 		/* TODO: Wait until the receiver sends us a message of type RECV_DONE_TYPE telling us 
@@ -143,30 +160,32 @@ void send(const char* fileName)
  		 */ 
 	    result = msgrcv(msqid, &rcvMsg, sizeof(rcvMsg), RECV_DONE_TYPE, 0);
 		if (result == -1) {
-			fprintf(stderr, "failed to send message to receiver: %s\n", strerror(errno));
+			fprintf(stderr, "failed to receive message from receiver: Was the receiver process killed?\n");
 			break;
 		}
-	
+		waiting = false; // no longer waiting for the reciever to start reading data
 
 	}
 	
-
-	/** TODO: once we are out of the above loop, we have finished sending the file.
- 	  * Lets tell the receiver that we have nothing more to send. We will do this by
- 	  * sending a message of type SENDER_DATA_TYPE with size field set to 0. 	
-	  */
-	sndMsg.mtype = SENDER_DATA_TYPE;
-	sndMsg.size = 0;
-	int result = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
 	if (result != -1) {
-		fprintf(stdout, "sending message to receiver: %d bytes left, finished.\n", sndMsg.size);
+		/** TODO: once we are out of the above loop, we have finished sending the file.
+		 * Lets tell the receiver that we have nothing more to send. We will do this by
+		 * sending a message of type SENDER_DATA_TYPE with size field set to 0. 	
+		 */ 
+		sndMsg.mtype = SENDER_DATA_TYPE;
+		sndMsg.size = 0;
+
+		result = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
+		if (result != -1) {
+			fprintf(stdout, "File transfer complete (%d bytes)                    \n", sentFileSize);
+		} else {
+			fprintf(stdout, "Sending message to receiver failed: Was the receiver process killed?\n");
+		}
 	} else {
-		fprintf(stdout, "sending message to receiver failed: %s\n", strerror(errno));
+		fprintf(stdout, "File transfer failed\n");
 	}
-		
 	/* Close the file */
-	fclose(fp);
-	 
+	fclose(fp);	 
 }
 
 
@@ -174,14 +193,12 @@ int main(int argc, char** argv)
 {
 	
 	/* Check the command line arguments */
-	fprintf(stdout, "send - sends data to a receiver\n");
 	if(argc < 2)
 	{
+		fprintf(stdout, "send - sends data to a receiver\n");
 		fprintf(stderr, "USAGE: %s <FILE NAME>\n", argv[0]);
 		exit(-1);
 	}
-
-	fprintf(stdout, "sending %s\n", argv[1]);
 		
 	/* Connect to shared memory and the message queue */
 	init(shmid, msqid, sharedMemPtr);
