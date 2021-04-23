@@ -53,7 +53,7 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 		exit(-1);
 	}
 	
-	/* TODO: Allocate a piece of shared memory. The size of the segment must be SHARED_MEMORY_CHUNK_SIZE. */
+	/* Allocate a piece of shared memory with size SHARED_MEMORY_CHUNK_SIZE. */
 	shmid = shmget(key, SHARED_MEMORY_CHUNK_SIZE, 0666 | IPC_CREAT);
 	if (shmid == -1) {
 		fprintf(stderr, "failed to obtain shared memory: %s\n", strerror(errno));
@@ -61,14 +61,14 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 		exit(-1);
 	}
 	
-	/* TODO: Attach to the shared memory */
+	/* Attach to the shared memory */
 	sharedMemPtr = shmat(shmid, NULL, 0);
 	if (sharedMemPtr == (void*)-1) {
 		fprintf(stderr, "failed to obtain shared memory pointer: %s\n", strerror(errno));
 		cleanUp(shmid, msqid, sharedMemPtr);
 		exit(-1);
 	}
-	/* TODO: Create a message queue */
+	/* Create the message queue */
 	msqid = msgget(key, 0666 | IPC_CREAT);
 	if (msqid == -1) {
 		fprintf(stderr, "failed to obtain message queue: %s\n", strerror(errno));
@@ -99,7 +99,7 @@ void mainLoop()
 		exit(-1);
 	}
 		
-    /* TODO: Receive the message and get the message size. The message will 
+    /* Receive the first message and get the message size. The message will 
      * contain regular information. The message will be of SENDER_DATA_TYPE
      * (the macro SENDER_DATA_TYPE is defined in msg.h).  If the size field
      * of the message is not 0, then we copy that many bytes from the shared
@@ -118,11 +118,13 @@ void mainLoop()
 
 	int result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
 	if (result != -1) {
+		// Report the status of the file transfer
 		fileSizeCounter += msg.size;
 		fprintf(stdout, "Reading block %d (%d bytes transferred)\r", blockCounter++, fileSizeCounter);
 		fflush(stdout);
 	} else {
 		fprintf(stderr, "message receive failed: %s\n", strerror(errno));
+		// for this error, the while loop will be skipped and the file will be closed
 	}
 	msgSize = msg.size;
 
@@ -134,14 +136,14 @@ void mainLoop()
 	{	
 
 			/* Save the shared memory to file */
-			if(fwrite(sharedMemPtr, sizeof(char), msgSize, fp) < 0)
+			if((result = fwrite(sharedMemPtr, sizeof(char), msgSize, fp)) < 0)
 			{
 				fprintf(stderr, "writing to file failure: %s\n", strerror(errno));
 				cleanUp(shmid, msqid, sharedMemPtr);
 				break;
 			}
 			
-			/* TODO: Tell the sender that we are ready for the next file chunk. 
+			/* Tell the sender that we are ready for the next file chunk. 
  			 * I.e. send a message of type RECV_DONE_TYPE (the value of size field
  			 * does not matter in this case). 
  			 */
@@ -153,9 +155,14 @@ void mainLoop()
 				break;
 			}
 
+			// Wait for the next message from the sender regarding the next block 
+			// in the file that is being transferred
 			result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
 			
 			if (result != -1) {
+				// Receive was successful, report status to the console
+				// This update will allow the next update to replace this one with \r
+				// instead of \n
 				fileSizeCounter += msg.size;
 				fprintf(stdout, "Reading block %d (%d bytes)                \r", blockCounter++, fileSizeCounter);
 				fflush(stdout);
@@ -167,12 +174,13 @@ void mainLoop()
 		
 	}
 	
-	/* Close the file */
+	// report to the output that the file transfer is complete or has failed
 	if (result != -1) {
 		fprintf(stdout, "File transfer complete (%d bytes)       \n", fileSizeCounter);
 	} else {
 		fprintf(stdout, "File transfer failed.                   \n");
 	}
+	/* Close the file */
 	fclose(fp);
 }
 
@@ -187,17 +195,17 @@ void mainLoop()
 
 void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
 {
-	/* TODO: Detach from shared memory */
+	/* Detach from shared memory */
 	int result = shmdt(sharedMemPtr);
 	if (result == -1) {
 		fprintf(stderr, "Failed to detach shared memory: %s\n", strerror(errno));
 	}
-	/* TODO: Deallocate the shared memory chunk */
+	/* Deallocate the shared memory chunk */
 	result = shmctl(shmid, IPC_RMID, NULL);
 	if (result == -1) {
 		fprintf(stderr, "Failed to deallocate the shared memory: %s\n", strerror(errno));
 	}
-	/* TODO: Deallocate the message queue */
+	/* Deallocate the message queue */
 	result = msgctl(msqid, IPC_RMID, NULL);
 	if (result == -1) {
 		fprintf(stderr, "Failed to deallocate message queue: %s\n", strerror(errno));
@@ -219,13 +227,7 @@ void ctrlCSignal(int signal)
 }
 
 int main(int argc, char** argv)
-{
-	/* TODO: Install a singnal handler (see signaldemo.cpp sample file).
- 	 * In a case user presses Ctrl-c your program should delete message
- 	 * queues and shared memory before exiting. You may add the cleaning functionality
- 	 * in ctrlCSignal().
- 	 */
-	
+{	
 	/* Overide the default signal handler for the
 	 * SIGINT signal with signalHandlerFunc
 	 */

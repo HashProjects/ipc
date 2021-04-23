@@ -27,16 +27,8 @@ void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr);
 
 void init(int& shmid, int& msqid, void*& sharedMemPtr)
 {
-	/* TODO: 
-        1. Create a file called keyfile.txt containing string "Hello world" (you may do
- 		    so manually or from the code).
-	    2. Use ftok("keyfile.txt", 'a') in order to generate the key.
-		3. Use the key in the TODO's below. Use the same key for the queue
-		    and the shared memory segment. This also serves to illustrate the difference
-		    between the key and the id used in message queues and shared memory. The id
-		    for any System V objest (i.e. message queues, shared memory, and sempahores) 
-		    is unique system-wide among all SYstem V objects. Two objects, on the other hand,
-		    may have the same key.
+	/* Get a unique key by using a file called keyfile.txt containing string 	
+	   and call ftok("keyfile.txt", 'b') in order to generate the key.
 	 */
 	key_t key;
 	key = ftok("keyfile.txt", 'b');
@@ -45,7 +37,7 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 		exit(-1);
 	}
 
-	/* TODO: Get the id of the shared memory segment. The size of the segment must be SHARED_MEMORY_CHUNK_SIZE */
+	/* Get the id of the shared memory segment. The size of the segment is SHARED_MEMORY_CHUNK_SIZE */
 	/* obtain the identifier of a previously created shared memory segment 
 	   (when shmflg is zero and key does not have the value IPC_PRIVATE)
 	*/
@@ -55,7 +47,7 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 		fprintf(stderr, "failed to obtain shared memory: %s\n", strerror(errno));
 		exit(-1);
 	}
-
+	/* Obtain the shared memory pointer for the memory segment */
 	sharedMemPtr = shmat(shmid, NULL, IPC_CREAT);
 	if (sharedMemPtr == (void*)-1) {
 		fprintf(stderr, "failed to obtain shared memory pointer: %s\n", strerror(errno));
@@ -63,15 +55,13 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 	}
 	
 	
-	/* TODO: Attach to the message queue */
+	/* Attach to the message queue */
 	msqid = msgget(key, 0666 | IPC_CREAT);
 	if (msqid == -1) {
 		fprintf(stderr, "failed to obtain message queue: %s\n", strerror(errno));
 		cleanUp(shmid, msqid, sharedMemPtr);
 		exit(-1);
 	}
-	/* Store the IDs and the pointer to the shared memory region in the corresponding parameters */
-	
 }
 
 /**
@@ -83,7 +73,9 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 
 void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
 {
-	/* TODO: Detach from shared memory */
+	/* Detach from shared memory
+	   recv will clean up all resource after file transfer is finished
+	 */
 	int result = shmdt(sharedMemPtr);
 	if (result == -1) {
 		fprintf(stderr, "failed to detach shared memory: %s\n", strerror(errno));
@@ -119,11 +111,14 @@ void send(const char* fileName)
 		exit(-1);
 	}
 
+	// get file information since the file size is required
 	if (stat(fileName, &statbuf) == -1) {
-  		fprintf(stderr, "File does not exist or is not accessible: %s\n", fileName);
+  		// This error case may not be possible, since fopen probably will fail first
+		fprintf(stderr, "File does not exist or is not accessible: %s\n", fileName);
+		fclose(fp);
 		return;
 	}
-
+	// display the file name
 	fprintf(stdout, "Sending %s\n", fileName);
 
 	
@@ -141,21 +136,23 @@ void send(const char* fileName)
 			fclose(fp);
 			exit(-1);
 		}
+
+		// Report the file transfer status to stdout 
 		sentFileSize += sndMsg.size;
-		/* TODO: Send a message to the receiver telling him that the data is ready 
- 		 * (message of type SENDER_DATA_TYPE) 
- 		 */
 		fprintf(stdout, "File transfer: %.2lf%% complete. %s                                 \r", 
 			sentFileSize * 100.0 /statbuf.st_size, (waiting ? " Waiting for receiver..." : ""));
 		fflush(stdout);
 
+		/* Send a message to the receiver telling him that the data is ready 
+ 		 * (message of type SENDER_DATA_TYPE) 
+ 		 */
 		sndMsg.mtype = SENDER_DATA_TYPE;
 		result = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
 		if (result == -1) {
 			fprintf(stderr, "failed to send message to receiver: Was the receiver process killed?\n");
 			break;
 		}
-		/* TODO: Wait until the receiver sends us a message of type RECV_DONE_TYPE telling us 
+		/* Wait until the receiver sends us a message of type RECV_DONE_TYPE telling us 
  		 * that he finished saving the memory chunk. 
  		 */ 
 	    result = msgrcv(msqid, &rcvMsg, sizeof(rcvMsg), RECV_DONE_TYPE, 0);
@@ -163,15 +160,18 @@ void send(const char* fileName)
 			fprintf(stderr, "failed to receive message from receiver: Was the receiver process killed?\n");
 			break;
 		}
-		waiting = false; // no longer waiting for the reciever to start reading data
+		waiting = false; // no longer waiting for the receiver to start reading data
 
 	}
 	
 	if (result != -1) {
-		/** TODO: once we are out of the above loop, we have finished sending the file.
+		/** once we are out of the above loop, we have finished sending the file.
 		 * Lets tell the receiver that we have nothing more to send. We will do this by
-		 * sending a message of type SENDER_DATA_TYPE with size field set to 0. 	
+		 * sending a message of type SENDER_DATA_TYPE with size field set to 0.
+		 * 
+		 * This is only done if there have been no errors previously. 	
 		 */ 
+
 		sndMsg.mtype = SENDER_DATA_TYPE;
 		sndMsg.size = 0;
 
