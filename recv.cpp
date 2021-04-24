@@ -21,10 +21,12 @@ void *sharedMemPtr;
 /* The name of the received file */
 const char recvFileName[] = "recvfile";
 
-/* The PID of the sender */
-pid_t sendpid;
+/* Number of bytes from sender */
+int msgSize;
 
 void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr);
+
+void handlerSIGUSR1(int signo, siginfo_t *info, void *context);
 
 /**
  * Sets up the shared memory segment and message queue
@@ -60,14 +62,6 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 		fprintf(stderr, "failed to obtain shared memory: %s\n", strerror(errno));
 		exit(-1);
 	}
-	
-	// Get PID of the sender. Sender performed the last shared
-	// memory operation so its PID is stored in shm_lpid
-	shmid_ds *shmInfo = (shmid_ds*) malloc(sizeof(shmid_ds));
-	shmctl(shmid, IPC_STAT, shmInfo);
-	sendpid = shmInfo->shm_lpid;
-	printf("init: pid=%d cpid=%d lpid=%d\n", getpid(), shmInfo->shm_cpid, shmInfo->shm_lpid);
-	free(shmInfo);
 
 	/* TODO: Attach to the shared memory */
 	sharedMemPtr = shmat(shmid, NULL, 0);
@@ -83,6 +77,27 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
  */
 void mainLoop()
 {
+	/* The PID of this process */
+	pid_t selfPid = getpid();
+	/* The PID of the sender */
+	pid_t sendPid = -1;
+	/* Info on shared memory segment */
+	shmid_ds *shmInfo = (shmid_ds*) malloc(sizeof(shmid_ds));
+
+	// Wait for sender to run and attach to shared memory
+	do {
+		// Read info on shared memory segment
+		shmctl(shmid, IPC_STAT, shmInfo);
+		// Find PID of sender: when sender attaches,
+		// its PID is stored in shm_lpid
+		if (shmInfo->shm_lpid != selfPid) {
+			sendPid = shmInfo->shm_lpid;
+		}
+		sleep(1);
+	} while (sendPid == -1);
+	free(shmInfo);
+	printf("selfpid=%d sendpid=%d\n", selfPid, sendPid);
+
 	/* Open the file for writing */
 	FILE* fp = fopen(recvFileName, "w");
 		
@@ -93,7 +108,6 @@ void mainLoop()
 		cleanUp(shmid, msqid, sharedMemPtr);
 		exit(-1);
 	}
-			printf("here");
 	
     /* TODO: Receive the signal and get the message size. If the size is not 0, 
 	 * then we copy that many bytes from the shared
@@ -109,18 +123,23 @@ void mainLoop()
 	sigemptyset(&sigs);
 	sigaddset(&sigs, SIGUSR1);
 
-	struct sigaction act = { .sa_flags = SA_SIGINFO};
-	
-	sigaction(SIGUSR1, &act, NULL);
+	// TODO
+	// Default behavior on receiving SIGUSR1 is to quit.
+	// Change to call a handler instead
+	//struct sigaction act = { .sa_flags = SA_SIGINFO};
+	struct sigaction *act = (struct sigaction*)malloc(sizeof(struct sigaction));
+	act->sa_sigaction = handlerSIGUSR1;
+	act->sa_flags = SA_SIGINFO;
+	sigaction(SIGUSR1, act, NULL);
 
 	// Data struct sent along with signal
 	siginfo_t *siginfo = (siginfo_t*)malloc(sizeof(siginfo_t));
 	// Wait for signal from sender
 	sigwaitinfo(&sigs, siginfo);
 	// Extract number of bytes sent
-	int msgSize;
-	msgSize = siginfo->_sifields._rt.si_sigval.sival_int;
+	
 	printf("msgsize=%d\n", msgSize);
+
 	/* Keep receiving until the sender set the size to 0, indicating that
  	 * there is no more data to send
  	 */	
@@ -137,7 +156,7 @@ void mainLoop()
 		/* TODO: Tell the sender that we are ready for the next file chunk. 
 		 * by sending a SIGUSR2 signal.
 		 */
-		kill(sendpid, SIGUSR2);
+		kill(sendPid, SIGUSR2);
 
 		// Wait for SIGUSR1 from sender
 		sigwaitinfo(&sigs, siginfo);
@@ -145,6 +164,7 @@ void mainLoop()
 		msgSize = siginfo->_sifields._rt.si_sigval.sival_int;
 	}
 	
+	free(act);
 	free(siginfo);
 	/* Close the file */
 	fprintf(stdout, "Transfer complete. Closing file\n");
@@ -184,6 +204,11 @@ void ctrlCSignal(int signal)
 	cleanUp(shmid, msqid, sharedMemPtr);
 	exit(0);
 }
+
+void handlerSIGUSR1(int signo, siginfo_t *info, void *context) {
+	msgSize = info->_sifields._rt.si_sigval.sival_int;
+}
+
 
 int main(int argc, char** argv)
 {

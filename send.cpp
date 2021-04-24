@@ -18,6 +18,9 @@ int shmid;
 /* The pointer to the shared memory */
 void* sharedMemPtr;
 
+/* The PID of the receiver */
+pid_t recvPid;
+
 void cleanUp(const int& shmid, void* sharedMemPtr);
 
 /**
@@ -44,11 +47,18 @@ void init(int& shmid, void*& sharedMemPtr)
 		exit(-1);
 	}
 
+	// Get PID of the receiver. Receiver performed the last shared
+	// memory operation so its PID is stored in shm_lpid
+	shmid_ds *shmInfo = (shmid_ds*) malloc(sizeof(shmid_ds));
+	shmctl(shmid, IPC_STAT, shmInfo);
+	recvPid = shmInfo->shm_lpid;
+	printf("selfpid=%d cpid=%d lpid=%d\n", getpid(), shmInfo->shm_cpid, shmInfo->shm_lpid);
+	free(shmInfo);
+
 	/* TODO: Get the id of the shared memory segment. The size of the segment must be SHARED_MEMORY_CHUNK_SIZE */
 	/* obtain the identifier of a previously created shared memory segment 
 	   (when shmflg is zero and key does not have the value IPC_PRIVATE)
 	*/
-	
 	shmid = shmget(key, SHARED_MEMORY_CHUNK_SIZE, 0666 | IPC_CREAT);
 	if (shmid == -1) {
 		fprintf(stderr, "Failed to obtain shared memory: %s\n", strerror(errno));
@@ -89,27 +99,6 @@ void cleanUp(const int& shmid, void* sharedMemPtr)
  */
 void send(const char* fileName)
 {
-	/* The PID of this process */
-	pid_t selfpid = getpid();
-	/* The PID of the receiver */
-	pid_t recvpid = -1;
-	/* Info on shared memory segment */
-	shmid_ds *shmInfo = (shmid_ds*) malloc(sizeof(shmid_ds));
-
-	// Wait for receiver to run and attach to shared memory
-	do {
-		// Read info on shared memory segment
-		shmctl(shmid, IPC_STAT, shmInfo);
-		// Find PID of receiver: when receiver attaches,
-		// its PID is stored in shm_lpid
-		if (shmInfo->shm_lpid != selfpid) {
-			recvpid = shmInfo->shm_lpid;
-		}
-		sleep(1);
-	} while (recvpid == -1);
-	free(shmInfo);
-	printf("recvpid=%d\n", recvpid);
-
 	// Set of signals to wait for from receiver
 	// SIGUSR2 = ready to receive more
 	sigset_t sigs;
@@ -151,7 +140,7 @@ void send(const char* fileName)
  		 */
 		fprintf(stdout, "Sending signal to receiver: %d bytes ready to read\n", bytesRead);
 		sigdata->sival_int = bytesRead;
-		if (sigqueue(recvpid, SIGUSR1, *sigdata) != 0) {
+		if (sigqueue(recvPid, SIGUSR1, *sigdata) != 0) {
 			fprintf(stderr, "Failed to signal receiver. %s\n", strerror(errno));
 			cleanUp(shmid, sharedMemPtr);
 			exit(-1);
@@ -174,7 +163,7 @@ void send(const char* fileName)
 	  */
 	fprintf(stdout, "Finished.\n");
 	bytesRead = 0;
-	if (sigqueue(recvpid, SIGUSR1, sigval {bytesRead}) != 0) {
+	if (sigqueue(recvPid, SIGUSR1, sigval {bytesRead}) != 0) {
 		fprintf(stderr, "Failed to signal receiver. %s\n", strerror(errno));
 		cleanUp(shmid, sharedMemPtr);
 		exit(-1);
