@@ -188,6 +188,17 @@ void send(const char* fileName)
 	fclose(fp);	 
 }
 
+/**
+ * Handles the exit signal
+ * @param signal - the signal type
+ */
+void ctrlCSignal(int signal)
+{
+	/* Free system V resources */
+	cleanUp(shmid, msqid, sharedMemPtr);
+	exit(0);
+}
+
 
 int main(int argc, char** argv)
 {
@@ -199,6 +210,7 @@ int main(int argc, char** argv)
 		fprintf(stderr, "USAGE: %s <FILE NAME>\n", argv[0]);
 		exit(-1);
 	}
+	signal(SIGINT, ctrlCSignal);
 		
 	/* Connect to shared memory and the message queue */
 	init(shmid, msqid, sharedMemPtr);
