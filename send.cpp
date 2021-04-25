@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <signal.h>
 #include "msg.h"    /* For the message struct */
 
 /* The size of the shared memory chunk */
@@ -18,7 +19,22 @@ int shmid, msqid;
 /* The pointer to the shared memory */
 void* sharedMemPtr;
 
+// use signals
+bool useSignals = false;
+sigset_t sigs;
+union sigval *sigdata = 0;
+
+/* The PID of the receiver */
+pid_t recvPid;
+
 void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr);
+
+
+void handlerSIGUSR2(int signo, siginfo_t *info, void *context) {
+	//msgSize = info->_sifields._rt.si_sigval.sival_int;
+	fprintf(stdout, "signal handler called");
+}
+
 /**
  * Sets up the shared memory segment and message queue
  * @param shmid - the id of the allocated shared memory 
@@ -56,11 +72,31 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 	
 	
 	/* Attach to the message queue */
-	msqid = msgget(key, 0666 | IPC_CREAT);
-	if (msqid == -1) {
-		fprintf(stderr, "failed to obtain message queue: %s\n", strerror(errno));
-		cleanUp(shmid, msqid, sharedMemPtr);
-		exit(-1);
+	if (!useSignals) {
+		msqid = msgget(key, 0666 | IPC_CREAT);
+		if (msqid == -1) {
+			fprintf(stderr, "failed to obtain message queue: %s\n", strerror(errno));
+			cleanUp(shmid, msqid, sharedMemPtr);
+			exit(-1);
+		}
+	} else {
+			// Set of signals to wait for from sender
+		// SIGUSR1 = read from shared memory
+		sigemptyset(&sigs);
+		sigaddset(&sigs, SIGUSR2);
+		sigdata = (union sigval*)malloc(sizeof(union sigval));
+
+		shmid_ds *shmInfo = (shmid_ds*) malloc(sizeof(shmid_ds));
+		shmctl(shmid, IPC_STAT, shmInfo);
+		recvPid = shmInfo->shm_cpid;
+		printf("selfpid=%d cpid=%d lpid=%d\n", getpid(), shmInfo->shm_cpid, shmInfo->shm_lpid);
+		free(shmInfo);
+
+		struct sigaction *act = (struct sigaction*)malloc(sizeof(struct sigaction));
+		act->sa_sigaction = handlerSIGUSR2;
+		act->sa_flags = SA_SIGINFO;
+		sigaction(SIGUSR2, act, NULL);
+		free(act);
 	}
 }
 
@@ -80,6 +116,15 @@ void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
 	if (result == -1) {
 		fprintf(stderr, "failed to detach shared memory: %s\n", strerror(errno));
 	}
+
+	free(sigdata);
+}
+
+void ctrlCSignal(int signal)
+{
+	/* Free system V resources */
+	cleanUp(shmid, msqid, sharedMemPtr);
+	exit(0);
 }
 
 /**
@@ -143,22 +188,39 @@ void send(const char* fileName)
 			sentFileSize * 100.0 /statbuf.st_size, (waiting ? " Waiting for receiver..." : ""));
 		fflush(stdout);
 
-		/* Send a message to the receiver telling him that the data is ready 
- 		 * (message of type SENDER_DATA_TYPE) 
- 		 */
-		sndMsg.mtype = SENDER_DATA_TYPE;
-		result = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
-		if (result == -1) {
-			fprintf(stderr, "failed to send message to receiver: Was the receiver process killed?\n");
-			break;
-		}
-		/* Wait until the receiver sends us a message of type RECV_DONE_TYPE telling us 
- 		 * that he finished saving the memory chunk. 
- 		 */ 
-	    result = msgrcv(msqid, &rcvMsg, sizeof(rcvMsg), RECV_DONE_TYPE, 0);
-		if (result == -1) {
-			fprintf(stderr, "failed to receive message from receiver: Was the receiver process killed?\n");
-			break;
+
+		if (useSignals) {
+			sigdata->sival_int = sndMsg.size;
+			if (sigqueue(recvPid, SIGUSR1, *sigdata) != 0) {
+				fprintf(stderr, "Failed to signal receiver. %s\n", strerror(errno));
+				cleanUp(shmid, msqid, sharedMemPtr);
+				exit(-1);
+			}
+
+			int signal;
+			if (sigwait(&sigs, &signal) != 0) {
+				fprintf(stderr, "Failed to receive signal from sender. %s\n", strerror(errno));
+				cleanUp(shmid, msqid, sharedMemPtr);
+				exit(-1);
+			}
+		} else {
+			/* Send a message to the receiver telling him that the data is ready 
+			* (message of type SENDER_DATA_TYPE) 
+			*/
+			sndMsg.mtype = SENDER_DATA_TYPE;
+			result = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
+			if (result == -1) {
+				fprintf(stderr, "failed to send message to receiver: Was the receiver process killed?\n");
+				break;
+			}
+			/* Wait until the receiver sends us a message of type RECV_DONE_TYPE telling us 
+			* that he finished saving the memory chunk. 
+			*/ 
+			result = msgrcv(msqid, &rcvMsg, sizeof(rcvMsg), RECV_DONE_TYPE, 0);
+			if (result == -1) {
+				fprintf(stderr, "failed to receive message from receiver: Was the receiver process killed?\n");
+				break;
+			}
 		}
 		waiting = false; // no longer waiting for the receiver to start reading data
 
@@ -199,6 +261,14 @@ int main(int argc, char** argv)
 		fprintf(stderr, "USAGE: %s <FILE NAME>\n", argv[0]);
 		exit(-1);
 	}
+
+	if (argc > 2) {
+		if (strcmp(argv[2], "signals") == 0) {
+			useSignals = true;
+		}
+	}
+
+	signal(SIGINT, ctrlCSignal);
 		
 	/* Connect to shared memory and the message queue */
 	init(shmid, msqid, sharedMemPtr);
