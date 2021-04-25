@@ -5,7 +5,7 @@ Project: IPC
 Group Members:
 Thanh Vuong - tnvuong@csu.fullerton.edu
 Eric Britten - ebritten@csu.fullerton.edu
-Ian Patteerson -ipatterson2@csu.fullerton.edu
+Ian Patterson -ipatterson2@csu.fullerton.edu
 Nolan O'Donnell - nolan794@csu.fullerton.edu
 
 Programming Language:
