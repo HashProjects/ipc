@@ -20,8 +20,8 @@ make
 How to Run:
 
 Run each command in a different terminal.  The order that they are started in does not matter.
-./send <filename>
 ./recv
+./send <filename>
 
 An 18KB file called datafile.dat has been included. An example send command is ./send datafile.dat
 
