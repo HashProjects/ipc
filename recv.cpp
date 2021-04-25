@@ -13,7 +13,7 @@
 #define SHARED_MEMORY_CHUNK_SIZE 1000
 
 /* The ids for the shared memory segment and the message queue */
-int shmid, msqid;
+int shmid;//, msqid;
 
 /* The pointer to the shared memory */
 void *sharedMemPtr;
@@ -24,9 +24,15 @@ const char recvFileName[] = "recvfile";
 /* Number of bytes from sender */
 int msgSize;
 
-void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr);
+/* Set of signals to wait for from receiver */
+sigset_t sigWatchlist;
 
-void handlerSIGUSR1(int signo, siginfo_t *info, void *context);
+pid_t getSenderPid(const int *shmId);
+
+int receiveMsgSize();
+
+void cleanUp(const int& shmid, void* sharedMemPtr);
+
 
 /**
  * Sets up the shared memory segment and message queue
@@ -34,8 +40,7 @@ void handlerSIGUSR1(int signo, siginfo_t *info, void *context);
  * @param msqid - the id of the shared memory
  * @param sharedMemPtr - the pointer to the shared memory
  */
-
-void init(int& shmid, int& msqid, void*& sharedMemPtr)
+void init(int& shmid, void*& sharedMemPtr)
 {
 	
 	/* TODO: 1. Create a file called keyfile.txt containing string "Hello world" (you may do
@@ -67,7 +72,7 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 	sharedMemPtr = shmat(shmid, NULL, 0);
 
 	/* TODO: Create a message queue */
-	msqid = msgget(key, 0666 | IPC_CREAT);
+	//msqid = msgget(key, 0666 | IPC_CREAT);
 
 	/* Store the IDs and the pointer to the shared memory region in the corresponding parameters */
 }
@@ -77,26 +82,8 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
  */
 void mainLoop()
 {
-	/* The PID of this process */
-	pid_t selfPid = getpid();
-	/* The PID of the sender */
-	pid_t sendPid = -1;
-	/* Info on shared memory segment */
-	shmid_ds *shmInfo = (shmid_ds*) malloc(sizeof(shmid_ds));
-
-	// Wait for sender to run and attach to shared memory
-	do {
-		// Read info on shared memory segment
-		shmctl(shmid, IPC_STAT, shmInfo);
-		// Find PID of sender: when sender attaches,
-		// its PID is stored in shm_lpid
-		if (shmInfo->shm_lpid != selfPid) {
-			sendPid = shmInfo->shm_lpid;
-		}
-		sleep(1);
-	} while (sendPid == -1);
-	free(shmInfo);
-	printf("selfpid=%d sendpid=%d\n", selfPid, sendPid);
+	/* Get PID of the sender */
+	pid_t sendPid = getSenderPid(&shmid);
 
 	/* Open the file for writing */
 	FILE* fp = fopen(recvFileName, "w");
@@ -105,7 +92,7 @@ void mainLoop()
 	if(!fp)
 	{
 		fprintf(stderr, "failed to open file for received data: %s\n", recvFileName);	
-		cleanUp(shmid, msqid, sharedMemPtr);
+		cleanUp(shmid, sharedMemPtr);
 		exit(-1);
 	}
 	
@@ -117,55 +104,28 @@ void mainLoop()
      * NOTE: the received file will always be saved into the file called
      * "recvfile"
      */
-	// Set of signals to wait for from sender
-	// SIGUSR1 = read from shared memory
-	sigset_t sigs;
-	sigemptyset(&sigs);
-	sigaddset(&sigs, SIGUSR1);
 
-	// TODO
-	// Default behavior on receiving SIGUSR1 is to quit.
-	// Change to call a handler instead
-	//struct sigaction act = { .sa_flags = SA_SIGINFO};
-	struct sigaction *act = (struct sigaction*)malloc(sizeof(struct sigaction));
-	act->sa_sigaction = handlerSIGUSR1;
-	act->sa_flags = SA_SIGINFO;
-	sigaction(SIGUSR1, act, NULL);
-
-	// Data struct sent along with signal
-	siginfo_t *siginfo = (siginfo_t*)malloc(sizeof(siginfo_t));
-	// Wait for signal from sender
-	sigwaitinfo(&sigs, siginfo);
-	// Extract number of bytes sent
-	
-	printf("msgsize=%d\n", msgSize);
+	//printf("msgsize=%d\n", msgSize);
 
 	/* Keep receiving until the sender set the size to 0, indicating that
  	 * there is no more data to send
  	 */	
-	while(msgSize != 0)
+	while((msgSize = receiveMsgSize()) != 0)
 	{	
 		/* Save the shared memory to file */
 		if(fwrite(sharedMemPtr, sizeof(char), msgSize, fp) < 0)
 		{
 			perror("fwrite");
-			cleanUp(shmid, msqid, sharedMemPtr);
+			cleanUp(shmid, sharedMemPtr);
 			break;
 		}
 		
-		/* TODO: Tell the sender that we are ready for the next file chunk. 
+		/* TODO: Tell the sender that we are ready for the next file chunk
 		 * by sending a SIGUSR2 signal.
 		 */
 		kill(sendPid, SIGUSR2);
-
-		// Wait for SIGUSR1 from sender
-		sigwaitinfo(&sigs, siginfo);
-		// Extract number of bytes sent
-		msgSize = siginfo->_sifields._rt.si_sigval.sival_int;
 	}
 	
-	free(act);
-	free(siginfo);
 	/* Close the file */
 	fprintf(stdout, "Transfer complete. Closing file\n");
 	fclose(fp);
@@ -177,8 +137,7 @@ void mainLoop()
  * @param shmid - the id of the shared memory segment
  * @param msqid - the id of the message queue
  */
-
-void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
+void cleanUp(const int& shmid, void* sharedMemPtr)
 {
 	/* TODO: Detach from shared memory */
 	if (shmdt(sharedMemPtr) == -1) {
@@ -188,10 +147,46 @@ void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
 	if (shmctl(shmid, IPC_RMID, NULL) == -1) {
 		fprintf(stderr, "Failed to deallocate the shared memory: %s\n", strerror(errno));
 	}
-	/* TODO: Deallocate the message queue */
-	if (msgctl(msqid, IPC_RMID, NULL) == -1) {
-		fprintf(stderr, "Failed to deallocate message queue: %s\n", strerror(errno));
+}
+
+/**
+ * Gets the PID of the sender
+ * Must be called after the sender performed an operation on
+ * the shared memory segment, such as attaching, and before any other
+ * process performs an operation on it.
+ * 
+ * @param shmId - The ID of the shared memory segment
+ */
+pid_t getSenderPid(const int* shmId) {
+	/* The PID of this process */
+	pid_t selfPid = getpid();
+	/* The PID of the sender */
+	pid_t sendPid = -1;
+	/* Info on shared memory segment */
+	shmid_ds shmInfo;
+
+	// Wait for sender to run and attach to shared memory
+	while (sendPid == -1) {
+		// Read info on shared memory segment
+		shmctl(*shmId, IPC_STAT, &shmInfo);
+		// Find PID of sender: when sender attaches,
+		// its PID is stored in shm_lpid
+		if (shmInfo.shm_lpid != selfPid) {
+			sendPid = shmInfo.shm_lpid;
+		}
+		sleep(1);
 	}
+	printf("selfpid=%d sendpid=%d\n", selfPid, sendPid);
+	return sendPid;
+}
+
+int receiveMsgSize() {
+	// Data struct sent along with signal
+	siginfo_t sigInfo;
+	// Wait for signal from sender
+	sigwaitinfo(&sigWatchlist, &sigInfo);
+	// Extract number of bytes sent
+	return sigInfo._sifields._rt.si_sigval.sival_int;
 }
 
 /**
@@ -201,12 +196,8 @@ void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr)
 void ctrlCSignal(int signal)
 {
 	/* Free system V resources */
-	cleanUp(shmid, msqid, sharedMemPtr);
+	cleanUp(shmid, sharedMemPtr);
 	exit(0);
-}
-
-void handlerSIGUSR1(int signo, siginfo_t *info, void *context) {
-	msgSize = info->_sifields._rt.si_sigval.sival_int;
 }
 
 
@@ -223,14 +214,24 @@ int main(int argc, char** argv)
 	 * SIGINT signal with signalHandlerFunc
 	 */
 	signal(SIGINT, ctrlCSignal); 
-				
+
+	// Populate the set of signals to watch from sender
+	// SIGUSR1 = read from shared memory
+	sigemptyset(&sigWatchlist);
+	sigaddset(&sigWatchlist, SIGUSR1);
+
+	// By default, processes terminate on receiving SIGUSR1
+	// Need to block SIGUSR1
+	sigprocmask(SIG_SETMASK, &sigWatchlist, NULL);
+
 	/* Initialize */
-	init(shmid, msqid, sharedMemPtr);
+	init(shmid, sharedMemPtr);
 	
 	/* Go to the main loop */
 	mainLoop(); 
 
 	/** TODO: Detach from shared memory segment, and deallocate shared memory and message queue (i.e. call cleanup) **/
-	cleanUp(shmid, msqid, sharedMemPtr);	
+	cleanUp(shmid, sharedMemPtr);
+
 	return 0;
 }
