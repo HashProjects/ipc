@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <signal.h>
 #include "msg.h"    /* For the message struct */
 
 /* The size of the shared memory chunk */
@@ -210,8 +211,9 @@ int main(int argc, char** argv)
 		fprintf(stderr, "USAGE: %s <FILE NAME>\n", argv[0]);
 		exit(-1);
 	}
+	// register Ctrl+C handler
 	signal(SIGINT, ctrlCSignal);
-		
+	
 	/* Connect to shared memory and the message queue */
 	init(shmid, msqid, sharedMemPtr);
 	
