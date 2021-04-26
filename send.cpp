@@ -8,11 +8,12 @@
 #include <errno.h>
 #include "msg.h"    /* For the message struct */
 #include <signal.h>
+#include <sys/stat.h>
 
 /* The size of the shared memory chunk */
 #define SHARED_MEMORY_CHUNK_SIZE 1000
 
-/* The ids for the shared memory segment and the message queue */
+/* The id for the shared memory segment */
 int shmid;
 
 /* The pointer to the shared memory */
@@ -34,16 +35,8 @@ void cleanUp(const int& shmid, void* sharedMemPtr);
  */
 void init(int& shmid, void*& sharedMemPtr)
 {
-	/* TODO: 
-        1. Create a file called keyfile.txt containing string "Hello world" (you may do
- 		    so manually or from the code).
-	    2. Use ftok("keyfile.txt", 'a') in order to generate the key.
-		3. Use the key in the TODO's below. Use the same key for the queue
-		    and the shared memory segment. This also serves to illustrate the difference
-		    between the key and the id used in message queues and shared memory. The id
-		    for any System V objest (i.e. message queues, shared memory, and sempahores) 
-		    is unique system-wide among all SYstem V objects. Two objects, on the other hand,
-		    may have the same key.
+	/* Get a unique key by using a file called keyfile.txt containing string 	
+	   and call ftok("keyfile.txt", 'a') in order to generate the key.
 	 */
 	key_t key;
 	key = ftok("keyfile.txt", 'a');
@@ -52,7 +45,7 @@ void init(int& shmid, void*& sharedMemPtr)
 		exit(-1);
 	}
 
-	/* TODO: Get the id of the shared memory segment. The size of the segment must be SHARED_MEMORY_CHUNK_SIZE */
+	/* Get the id of the shared memory segment. The size of the segment must be SHARED_MEMORY_CHUNK_SIZE */
 	/* obtain the identifier of a previously created shared memory segment 
 	   (when shmflg is zero and key does not have the value IPC_PRIVATE)
 	*/
@@ -65,13 +58,12 @@ void init(int& shmid, void*& sharedMemPtr)
 	// Get PID of the receiver
 	recvPid = getRecvPid(&shmid);
 	
+	// Attach to shared memory and obtain pointer to it
 	sharedMemPtr = shmat(shmid, NULL, IPC_CREAT);
 	if (sharedMemPtr == (void*)-1) {
 		fprintf(stderr, "Failed to obtain shared memory pointer: %s\n", strerror(errno));
 		exit(-1);
 	}
-	
-	/* Store the IDs and the pointer to the shared memory region in the corresponding parameters */
 }
 
 /**
@@ -79,10 +71,9 @@ void init(int& shmid, void*& sharedMemPtr)
  * @param sharedMemPtr - the pointer to the shared memory
  * @param shmid - the id of the shared memory segment
  */
-
 void cleanUp(const int& shmid, void* sharedMemPtr)
 {
-	/* TODO: Detach from shared memory */
+	/* Detach from shared memory */
 	if (shmdt(sharedMemPtr) == -1) {
 		fprintf(stderr, "Failed to detach shared memory: %s\n", strerror(errno));
 	}
@@ -94,8 +85,11 @@ void cleanUp(const int& shmid, void* sharedMemPtr)
  */
 void send(const char* fileName)
 {
-	// Data struct to be sent along with signal
-	union sigval sigData;
+	struct stat statbuf;
+	int sentFileSize = 0;
+
+	//int result = 0; // most recent error code
+	bool waiting = true;
 
 	/* Open the file for reading */
 	FILE* fp = fopen(fileName, "r");
@@ -107,6 +101,19 @@ void send(const char* fileName)
 		cleanUp(shmid, sharedMemPtr);
 		exit(-1);
 	}
+
+	// get file information since the file size is required
+	if (stat(fileName, &statbuf) == -1) {
+  		// This error case may not be possible, since fopen probably will fail first
+		fprintf(stderr, "File does not exist or is not accessible: %s\n", fileName);
+		fclose(fp);
+		return;
+	}
+	// display the file name
+	fprintf(stdout, "Sending %s\n", fileName);
+
+	// Data struct to be sent along with signal
+	union sigval sigData;
 
 	int bytesRead;
 	/* Read the whole file */
@@ -124,10 +131,16 @@ void send(const char* fileName)
 			exit(-1);
 		}
 
-		/* TODO: Send a SIGUSR1 signal to the receiver telling him that the data is ready 
+		// Report the file transfer status to stdout 
+		sentFileSize += bytesRead;
+		fprintf(stdout, "File transfer: %.2lf%% complete. %s                                 \r", 
+			sentFileSize * 100.0 /statbuf.st_size, (waiting ? " Waiting for receiver..." : ""));
+		fflush(stdout);
+
+		/* Send a SIGUSR1 signal to the receiver telling him that the data is ready 
  		 * and number of bytes sent in shared memory
  		 */
-		fprintf(stdout, "Sending signal to receiver: %d bytes ready to read\n", bytesRead);
+		//fprintf(stdout, "Sending signal to receiver: %d bytes ready to read\n", bytesRead);
 		sigData.sival_int = bytesRead;
 		if (sigqueue(recvPid, SIGUSR1, sigData) != 0) {
 			fprintf(stderr, "Failed to signal receiver. %s\n", strerror(errno));
@@ -135,7 +148,7 @@ void send(const char* fileName)
 			exit(-1);
 		}
 
-		/* TODO: Wait until the receiver sends us a signal SIGUSR2 telling us 
+		/* Wait until the receiver sends us a signal SIGUSR2 telling us 
  		 * that he finished saving the memory chunk. 
  		 */
 		int signal;
@@ -144,16 +157,17 @@ void send(const char* fileName)
 			cleanUp(shmid, sharedMemPtr);
 			exit(-1);
 		}
+
+		waiting = false; // no longer waiting for the receiver to start reading data
 	}
 	
-	/** TODO: once we are out of the above loop, we have finished sending the file.
+	/** Once we are out of the above loop, we have finished sending the file.
  	  * Lets tell the receiver that we have nothing more to send. We will do this by
  	  * sending a SIGUSR1 signal with value field set to 0. 	
 	  */
-	fprintf(stdout, "Finished.\n");
-	sigData.sival_int = 0;
+	fprintf(stdout, "File transfer complete (%d bytes)                    \n", sentFileSize);sigData.sival_int = 0;
 	if (sigqueue(recvPid, SIGUSR1, sigData) != 0) {
-		fprintf(stderr, "Failed to signal receiver. %s\n", strerror(errno));
+		fprintf(stderr, "Sending message to receiver failed: Was the receiver process killed?\n");
 		cleanUp(shmid, sharedMemPtr);
 		exit(-1);
 	}
@@ -163,20 +177,21 @@ void send(const char* fileName)
 }
 
 /**
- * Gets the PID of the receiver
+ * Gets the PID of the receiver.
+ * Must be called after the receiver performed an operation on
+ * the shared memory segment, such as attaching, and before any other
+ * process performs any operation on it.
+ * 
  * @param shmId - the ID of a shared memory segment
  */
 pid_t getRecvPid(const int *shmId) {
-	/* Info on shared memory segment */
+	// Read info on shared memory segment
 	shmid_ds shmInfo;
 	shmctl(*shmId, IPC_STAT, &shmInfo);
 
 	// Receiver performed the last shared
 	// memory operation so its PID is stored in shm_lpid
-	recvPid = shmInfo.shm_lpid;
-	printf("selfpid=%d cpid=%d lpid=%d\n", getpid(), shmInfo.shm_cpid, shmInfo.shm_lpid);
-
-	return recvPid;
+	return shmInfo.shm_lpid;
 }
 
 /**
@@ -192,6 +207,15 @@ void ctrlCSignal(int signal)
 
 int main(int argc, char** argv)
 {
+	fprintf(stdout, "send - sends data to a receiver\n");
+
+	/* Check the command line arguments */
+	if (argc < 2) {
+		fprintf(stderr, "USAGE: %s <FILE NAME>\n", argv[0]);
+		exit(-1);
+	}
+
+	// register Ctrl+C handler
 	signal(SIGINT, ctrlCSignal);
 
 	// Populate the set of signals to watch from receiver
@@ -202,18 +226,8 @@ int main(int argc, char** argv)
 	// By default, processes terminate on receiving SIGUSR2
 	// Need to block SIGUSR2
 	sigprocmask(SIG_SETMASK, &sigWatchlist, NULL);
-
-	/* Check the command line arguments */
-	fprintf(stdout, "send - sends data to a receiver\n");
-	if(argc < 2)
-	{
-		fprintf(stderr, "USAGE: %s <FILE NAME>\n", argv[0]);
-		exit(-1);
-	}
-
-	fprintf(stdout, "sending %s\n", argv[1]);
 		
-	/* Connect to shared memory and the message queue */
+	/* Connect to shared memory */
 	init(shmid, sharedMemPtr);
 	
 	/* Send the file */
