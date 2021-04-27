@@ -141,7 +141,7 @@ void send(const char* fileName)
  		 */
 		sigData.sival_int = bytesRead;
 		if (sigqueue(recvPid, SIGUSR1, sigData) != 0) {
-			fprintf(stderr, "Failed to signal receiver. %s\n", strerror(errno));
+			fprintf(stderr, "Failed to signal receiver. %s                   \n", strerror(errno));
 			cleanUp(shmid, sharedMemPtr);
 			exit(-1);
 		}
