@@ -35,15 +35,15 @@ void cleanUp(const int& shmid, const int& msqid, void* sharedMemPtr);
 void init(int& shmid, int& msqid, void*& sharedMemPtr)
 {
 	
-	/* TODO: 1. Create a file called keyfile.txt containing string "Hello world" (you may do
- 		    so manually or from the code).
-	         2. Use ftok("keyfile.txt", 'a') in order to generate the key.
-		 3. Use the key in the TODO's below. Use the same key for the queue
-		    and the shared memory segment. This also serves to illustrate the difference
-		    between the key and the id used in message queues and shared memory. The id
-		    for any System V object (i.e. message queues, shared memory, and sempahores) 
-		    is unique system-wide among all System V objects. Two objects, on the other hand,
-		    may have the same key.
+	/*  1. Create a file called keyfile.txt containing string "Hello world" (you may do
+ 		   so manually or from the code).
+	    2. Use ftok("keyfile.txt", 'a') in order to generate the key.
+		3. Use the key in the TODO's below. Use the same key for the queue
+		   and the shared memory segment. This also serves to illustrate the difference
+		   between the key and the id used in message queues and shared memory. The id
+		   for any System V object (i.e. message queues, shared memory, and sempahores) 
+		   is unique system-wide among all System V objects. Two objects, on the other hand,
+		   may have the same key.
 	 */
 	
 	key_t key;
@@ -135,43 +135,43 @@ void mainLoop()
 	while(msgSize != 0)
 	{	
 
-			/* Save the shared memory to file */
-			if((result = fwrite(sharedMemPtr, sizeof(char), msgSize, fp)) < 0)
-			{
-				fprintf(stderr, "writing to file failure: %s\n", strerror(errno));
-				cleanUp(shmid, msqid, sharedMemPtr);
-				break;
-			}
-			
-			/* Tell the sender that we are ready for the next file chunk. 
- 			 * I.e. send a message of type RECV_DONE_TYPE (the value of size field
- 			 * does not matter in this case). 
- 			 */
-			msg.mtype = RECV_DONE_TYPE;
-			
-			result = msgsnd(msqid, &msg, sizeof(msg), 0);
-			if (result == -1) {
-				fprintf(stderr, "message sent failure: %s\n", strerror(errno));
-				break;
-			}
-
-			// Wait for the next message from the sender regarding the next block 
-			// in the file that is being transferred
-			result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
-			
-			if (result != -1) {
-				// Receive was successful, report status to the console
-				// This update will allow the next update to replace this one with \r
-				// instead of \n
-				fileSizeCounter += msg.size;
-				fprintf(stdout, "Reading block %d (%d bytes)                \r", blockCounter++, fileSizeCounter);
-				fflush(stdout);
-			} else {
-				fprintf(stderr, "message receive failure: %s\n", strerror(errno));
-				break;
-			}
-			msgSize = msg.size;
+		/* Save the shared memory to file */
+		if((result = fwrite(sharedMemPtr, sizeof(char), msgSize, fp)) < 0)
+		{
+			fprintf(stderr, "writing to file failure: %s\n", strerror(errno));
+			cleanUp(shmid, msqid, sharedMemPtr);
+			break;
+		}
 		
+		/* Tell the sender that we are ready for the next file chunk. 
+			* I.e. send a message of type RECV_DONE_TYPE (the value of size field
+			* does not matter in this case). 
+			*/
+		msg.mtype = RECV_DONE_TYPE;
+		
+		result = msgsnd(msqid, &msg, sizeof(msg), 0);
+		if (result == -1) {
+			fprintf(stderr, "message sent failure: %s\n", strerror(errno));
+			break;
+		}
+
+		// Wait for the next message from the sender regarding the next block 
+		// in the file that is being transferred
+		result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
+		
+		if (result != -1) {
+			// Receive was successful, report status to the console
+			// This update will allow the next update to replace this one with \r
+			// instead of \n
+			fileSizeCounter += msg.size;
+			fprintf(stdout, "Reading block %d (%d bytes)                \r", blockCounter++, fileSizeCounter);
+			fflush(stdout);
+		} else {
+			fprintf(stderr, "message receive failure: %s\n", strerror(errno));
+			break;
+		}
+		msgSize = msg.size;
+	
 	}
 	
 	// report to the output that the file transfer is complete or has failed
@@ -239,7 +239,7 @@ int main(int argc, char** argv)
 	/* Go to the main loop */
 	mainLoop(); 
 
-	/** TODO: Detach from shared memory segment, and deallocate shared memory and message queue (i.e. call cleanup) **/
+	/* Detach from shared memory segment, and deallocate shared memory and message queue (i.e. call cleanup) **/
 	cleanUp(shmid, msqid, sharedMemPtr);	
 	return 0;
 }
