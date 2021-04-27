@@ -7,7 +7,6 @@
 #include <errno.h>
 #include <unistd.h>
 #include <cerrno>
-#include "msg.h"    /* For the message struct */
 
 /* The size of the shared memory chunk */
 #define SHARED_MEMORY_CHUNK_SIZE 1000

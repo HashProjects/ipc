@@ -6,7 +6,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include "msg.h"    /* For the message struct */
 #include <signal.h>
 #include <sys/stat.h>
 
