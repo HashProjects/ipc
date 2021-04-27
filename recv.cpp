@@ -47,7 +47,7 @@ void init(int& shmid, int& msqid, void*& sharedMemPtr)
 	 */
 	
 	key_t key;
-	key = ftok("keyfile.txt", 'b');
+	key = ftok("keyfile.txt", 'a');
 	if (key == -1) {
 		fprintf(stderr, "Failed to generate key: %s\n", strerror(errno));
 		exit(-1);
