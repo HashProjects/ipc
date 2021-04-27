@@ -140,7 +140,6 @@ void send(const char* fileName)
 		/* Send a SIGUSR1 signal to the receiver telling him that the data is ready 
  		 * and number of bytes sent in shared memory
  		 */
-		//fprintf(stdout, "Sending signal to receiver: %d bytes ready to read\n", bytesRead);
 		sigData.sival_int = bytesRead;
 		if (sigqueue(recvPid, SIGUSR1, sigData) != 0) {
 			fprintf(stderr, "Failed to signal receiver. %s\n", strerror(errno));
@@ -153,7 +152,7 @@ void send(const char* fileName)
  		 */
 		int signal;
 		if (sigwait(&sigWatchlist, &signal) != 0) {
-			fprintf(stderr, "Failed to receive signal from sender. %s\n", strerror(errno));
+			fprintf(stderr, "Failed to receive signal from receiver. %s\n", strerror(errno));
 			cleanUp(shmid, sharedMemPtr);
 			exit(-1);
 		}
@@ -166,6 +165,7 @@ void send(const char* fileName)
  	  * sending a SIGUSR1 signal with value field set to 0. 	
 	  */
 	fprintf(stdout, "File transfer complete (%d bytes)                    \n", sentFileSize);sigData.sival_int = 0;
+	sigData.sival_int = 0;
 	if (sigqueue(recvPid, SIGUSR1, sigData) != 0) {
 		fprintf(stderr, "Sending message to receiver failed: Was the receiver process killed?\n");
 		cleanUp(shmid, sharedMemPtr);
@@ -181,7 +181,6 @@ void send(const char* fileName)
  * Must be called after the receiver performed an operation on
  * the shared memory segment, such as attaching, and before any other
  * process performs any operation on it.
- * 
  * @param shmId - the ID of a shared memory segment
  */
 pid_t getRecvPid(const int *shmId) {
@@ -223,18 +222,17 @@ int main(int argc, char** argv)
 	sigemptyset(&sigWatchlist);
 	sigaddset(&sigWatchlist, SIGUSR2);
 
-	// By default, processes terminate on receiving SIGUSR2
-	// Need to block SIGUSR2
+	// Block SIGUSR2 from terminating process (default behavior)
 	sigprocmask(SIG_SETMASK, &sigWatchlist, NULL);
-		
+
 	/* Connect to shared memory */
 	init(shmid, sharedMemPtr);
-	
+
 	/* Send the file */
 	send(argv[1]);
-	
+
 	/* Cleanup */
 	cleanUp(shmid, sharedMemPtr);
-		
+
 	return 0;
 }

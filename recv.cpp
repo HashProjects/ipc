@@ -12,8 +12,8 @@
 /* The size of the shared memory chunk */
 #define SHARED_MEMORY_CHUNK_SIZE 1000
 
-/* The ids for the shared memory segment and the message queue */
-int shmid;//, msqid;
+/* The ids for the shared memory segment */
+int shmid;
 
 /* The pointer to the shared memory */
 void *sharedMemPtr;
@@ -36,23 +36,13 @@ void cleanUp(const int& shmid, void* sharedMemPtr);
 /**
  * Sets up the shared memory segment and message queue
  * @param shmid - the id of the allocated shared memory 
- * @param msqid - the id of the shared memory
  * @param sharedMemPtr - the pointer to the shared memory
  */
 void init(int& shmid, void*& sharedMemPtr)
 {
-	
-	/* TODO: 1. Create a file called keyfile.txt containing string "Hello world" (you may do
- 		    so manually or from the code).
-	         2. Use ftok("keyfile.txt", 'a') in order to generate the key.
-		 3. Use the key in the TODO's below. Use the same key for the queue
-		    and the shared memory segment. This also serves to illustrate the difference
-		    between the key and the id used in message queues and shared memory. The id
-		    for any System V object (i.e. message queues, shared memory, and sempahores) 
-		    is unique system-wide among all System V objects. Two objects, on the other hand,
-		    may have the same key.
+	/* Get a unique key by using a file called keyfile.txt containing string 	
+	   and call ftok("keyfile.txt", 'a') in order to generate the key.
 	 */
-	
 	key_t key;
 	key = ftok("keyfile.txt", 'a');
 	if (key == -1) {
@@ -60,14 +50,14 @@ void init(int& shmid, void*& sharedMemPtr)
 		exit(-1);
 	}
 	
-	/* TODO: Allocate a piece of shared memory. The size of the segment must be SHARED_MEMORY_CHUNK_SIZE. */
+	/* Allocate a piece of shared memory. The size of the segment must be SHARED_MEMORY_CHUNK_SIZE. */
 	shmid = shmget(key, SHARED_MEMORY_CHUNK_SIZE, 0666 | IPC_CREAT);
 	if (shmid == -1) {
 		fprintf(stderr, "Failed to obtain shared memory: %s\n", strerror(errno));
 		exit(-1);
 	}
 
-	/* TODO: Attach to the shared memory */
+	/* Attach to the shared memory */
 	sharedMemPtr = shmat(shmid, NULL, 0);
 	if (sharedMemPtr == (void*)-1) {
 		fprintf(stderr, "Failed to obtain shared memory pointer: %s\n", strerror(errno));
@@ -77,8 +67,6 @@ void init(int& shmid, void*& sharedMemPtr)
 
 	/* Get PID of the sender */
 	sendPid = getSenderPid(&shmid);
-
-	/* Store the IDs and the pointer to the shared memory region in the corresponding parameters */
 }
 
 /**
@@ -97,7 +85,7 @@ void mainLoop()
 		exit(-1);
 	}
 	
-    /* TODO: Receive the signal and get the message size. If the size is not 0, 
+    /* Receive the signal and get the message size. If the size is not 0, 
 	 * then we copy that many bytes from the shared
      * memory region to the file. Otherwise, if 0, then we close the file and
      * exit.
@@ -118,23 +106,23 @@ void mainLoop()
 	/* Keep receiving until the sender set the size to 0, indicating that
  	 * there is no more data to send.
  	 */	
-	while((msgSize = receiveMsgSize()) != 0)	{
+	while ((msgSize = receiveMsgSize()) != 0) {
 		/* Save the shared memory to file */
-		if(fwrite(sharedMemPtr, sizeof(char), msgSize, fp) < 0) {
+		if (fwrite(sharedMemPtr, sizeof(char), msgSize, fp) < 0) {
 			perror("fwrite");
 			cleanUp(shmid, sharedMemPtr);
 			break;
 		}
-		
+
 		fileSizeCounter += msgSize;
 		fprintf(stdout, "Reading block %d (%d bytes transferred)\r", blockCounter++, fileSizeCounter);
 		fflush(stdout);
 
-		/* TODO: Tell the sender that we are ready for the next file chunk
+		/* Tell the sender that we are ready for the next file chunk
 		 * by sending a SIGUSR2 signal.
 		 */
 		if (kill(sendPid, SIGUSR2) == -1) {
-			fprintf(stderr, "Failed to signal receiver: %s\n", strerror(errno));
+			fprintf(stderr, "Failed to signal sender: %s\n", strerror(errno));
 			cleanUp(shmid, sharedMemPtr);
 			exit(-1);
 		}
@@ -188,7 +176,7 @@ pid_t getSenderPid(const int* shmId) {
  * Extracts number of bytes sent from sender
  */
 int receiveMsgSize() {
-	// Data struct sent along with signal
+	// Data struct that was sent along with signal
 	siginfo_t sigInfo;
 	// Wait for signal from sender
 	sigwaitinfo(&sigWatchlist, &sigInfo);
