@@ -26,6 +26,10 @@ Open a terminal, navigate to location of recv, then type
 Open another terminal, navigate to location of send, then type
 ./send <filename>
 
+The version that handles signals is in the signals folder and can be run with these commands:
+signals/recv
+signals/send <filename>
+
 An 18KB file called datafile.dat has been included. An example send command is 
 ./send datafile.dat
 

@@ -113,14 +113,15 @@ void mainLoop()
 	int blockCounter = 1;
 	int fileSizeCounter = 0;
 
-	fprintf(stdout, "Waiting for file transfer to begin...\r");
+	fprintf(stdout, "Waiting for file transfer to begin...\n");
 	fflush(stdout);
 
 	int result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
+	fprintf(stdout, "Received message from send for %d bytes. ", msg.size);
 	if (result != -1) {
 		// Report the status of the file transfer
 		fileSizeCounter += msg.size;
-		fprintf(stdout, "Reading block %d (%d bytes transferred)\r", blockCounter++, fileSizeCounter);
+		fprintf(stdout, "Reading block %d (%d bytes transferred)\n", blockCounter++, fileSizeCounter);
 		fflush(stdout);
 	} else {
 		fprintf(stderr, "message receive failed: %s\n", strerror(errno));
@@ -148,7 +149,7 @@ void mainLoop()
 			* does not matter in this case). 
 			*/
 		msg.mtype = RECV_DONE_TYPE;
-		
+		fprintf(stdout, "Sending message to send. ");
 		result = msgsnd(msqid, &msg, sizeof(msg), 0);
 		if (result == -1) {
 			fprintf(stderr, "message sent failure: %s\n", strerror(errno));
@@ -158,13 +159,13 @@ void mainLoop()
 		// Wait for the next message from the sender regarding the next block 
 		// in the file that is being transferred
 		result = msgrcv(msqid, &msg, sizeof(msg), SENDER_DATA_TYPE, 0);
-		
+		fprintf(stdout, "Received message from send for %d bytes. ", msg.size);
 		if (result != -1) {
 			// Receive was successful, report status to the console
 			// This update will allow the next update to replace this one with \r
 			// instead of \n
 			fileSizeCounter += msg.size;
-			fprintf(stdout, "Reading block %d (%d bytes)                \r", blockCounter++, fileSizeCounter);
+			fprintf(stdout, "Reading block %d (%d bytes transferred)\n", blockCounter++, fileSizeCounter);
 			fflush(stdout);
 		} else {
 			fprintf(stderr, "message receive failure: %s\n", strerror(errno));

@@ -140,7 +140,7 @@ void send(const char* fileName)
 
 		// Report the file transfer status to stdout 
 		sentFileSize += sndMsg.size;
-		fprintf(stdout, "File transfer: %.2lf%% complete. %s                                 \r", 
+		fprintf(stdout, "File transfer: %.2lf%%. %s\n", 
 			sentFileSize * 100.0 /statbuf.st_size, (waiting ? " Waiting for receiver..." : ""));
 		fflush(stdout);
 
@@ -148,6 +148,7 @@ void send(const char* fileName)
  		 * (message of type SENDER_DATA_TYPE) 
  		 */
 		sndMsg.mtype = SENDER_DATA_TYPE;
+		fprintf(stdout, "Sending message to recv for %d bytes. ", sndMsg.size);
 		result = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
 		if (result == -1) {
 			fprintf(stderr, "failed to send message to receiver: Was the receiver process killed?\n");
@@ -157,6 +158,8 @@ void send(const char* fileName)
  		 * that he finished saving the memory chunk. 
  		 */ 
 	    result = msgrcv(msqid, &rcvMsg, sizeof(rcvMsg), RECV_DONE_TYPE, 0);
+		fprintf(stdout, "Received message from recv. ");
+
 		if (result == -1) {
 			fprintf(stderr, "failed to receive message from receiver: Was the receiver process killed?\n");
 			break;
@@ -175,7 +178,7 @@ void send(const char* fileName)
 
 		sndMsg.mtype = SENDER_DATA_TYPE;
 		sndMsg.size = 0;
-
+		fprintf(stdout, "\nSending message to recv that file transfer is finished.\n");
 		result = msgsnd(msqid, &sndMsg, sizeof(sndMsg), 0);
 		if (result != -1) {
 			fprintf(stdout, "File transfer complete (%d bytes)                    \n", sentFileSize);
