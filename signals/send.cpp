@@ -132,7 +132,7 @@ void send(const char* fileName)
 
 		// Report the file transfer status to stdout 
 		sentFileSize += bytesRead;
-		fprintf(stdout, "File transfer: %.2lf%% complete. %s                                 \r", 
+		fprintf(stdout, "File transfer: %.2lf%% complete. %s\n", 
 			sentFileSize * 100.0 /statbuf.st_size, (waiting ? " Waiting for receiver..." : ""));
 		fflush(stdout);
 
@@ -140,12 +140,14 @@ void send(const char* fileName)
  		 * and number of bytes sent in shared memory
  		 */
 		sigData.sival_int = bytesRead;
+        
 		if (sigqueue(recvPid, SIGUSR1, sigData) != 0) {
 			fprintf(stderr, "Failed to signal receiver. %s                   \n", strerror(errno));
 			cleanUp(shmid, sharedMemPtr);
 			exit(-1);
 		}
-
+        fprintf(stdout, "Sent SIGUSR1 to recv. ");
+        fflush(stdout);
 		/* Wait until the receiver sends us a signal SIGUSR2 telling us 
  		 * that he finished saving the memory chunk. 
  		 */
@@ -155,7 +157,8 @@ void send(const char* fileName)
 			cleanUp(shmid, sharedMemPtr);
 			exit(-1);
 		}
-
+        fprintf(stdout, "Received SIGUSR2 from recv. ");
+        fflush(stdout);
 		waiting = false; // no longer waiting for the receiver to start reading data
 	}
 	
@@ -163,7 +166,7 @@ void send(const char* fileName)
  	  * Lets tell the receiver that we have nothing more to send. We will do this by
  	  * sending a SIGUSR1 signal with value field set to 0. 	
 	  */
-	fprintf(stdout, "File transfer complete (%d bytes)                    \n", sentFileSize);sigData.sival_int = 0;
+	fprintf(stdout, "\nFile transfer complete (%d bytes)\n", sentFileSize);sigData.sival_int = 0;
 	sigData.sival_int = 0;
 	if (sigqueue(recvPid, SIGUSR1, sigData) != 0) {
 		fprintf(stderr, "Sending message to receiver failed: Was the receiver process killed?\n");

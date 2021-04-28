@@ -106,6 +106,8 @@ void mainLoop()
  	 * there is no more data to send.
  	 */	
 	while ((msgSize = receiveMsgSize()) != 0) {
+        fprintf(stdout, "Received SIGUSR1 from send for %d bytes. ", msgSize);
+        fflush(stdout);
 		/* Save the shared memory to file */
 		if (fwrite(sharedMemPtr, sizeof(char), msgSize, fp) < 0) {
 			perror("fwrite");
@@ -114,7 +116,7 @@ void mainLoop()
 		}
 
 		fileSizeCounter += msgSize;
-		fprintf(stdout, "Reading block %d (%d bytes transferred)\r", blockCounter++, fileSizeCounter);
+		fprintf(stdout, "Reading block %d (%d bytes transferred)\n", blockCounter++, fileSizeCounter);
 		fflush(stdout);
 
 		/* Tell the sender that we are ready for the next file chunk
@@ -125,9 +127,11 @@ void mainLoop()
 			cleanUp(shmid, sharedMemPtr);
 			exit(-1);
 		}
+        fprintf(stdout, "Sent SIGUSR2 to send. ");
+        fflush(stdout);
 	}
 	
-	fprintf(stdout, "File transfer complete (%d bytes)       \n", fileSizeCounter);
+	fprintf(stdout, "File transfer complete (%d bytes)\n", fileSizeCounter);
 	
 	/* Close the file */
 	fclose(fp);
