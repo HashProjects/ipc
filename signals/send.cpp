@@ -222,11 +222,17 @@ int main(int argc, char** argv)
 	// Populate the set of signals to watch from receiver
 	// SIGUSR2 = receiver ready to receive more
 	sigemptyset(&sigWatchlist);
-	sigaddset(&sigWatchlist, SIGUSR2);
+	if (sigaddset(&sigWatchlist, SIGUSR2) == -1) {
+		fprintf(stderr, "Failed to add signal mask: %s\n", strerror(errno));
+		exit(-1);
+	}
 
 	// Block SIGUSR2 from terminating process (default behavior)
-	sigprocmask(SIG_SETMASK, &sigWatchlist, NULL);
-
+	if (sigprocmask(SIG_SETMASK, &sigWatchlist, NULL) == -1) {
+		fprintf(stderr, "Failed to set signals mask: %s\n", strerror(errno));
+		exit(-1);
+	}
+	
 	/* Connect to shared memory */
 	init(shmid, sharedMemPtr);
 
