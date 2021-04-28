@@ -140,7 +140,7 @@ void send(const char* fileName)
 
 		// Report the file transfer status to stdout 
 		sentFileSize += sndMsg.size;
-		fprintf(stdout, "File transfer: %.2lf%% complete. %s\n", 
+		fprintf(stdout, "File transfer: %.2lf%%. %s\n", 
 			sentFileSize * 100.0 /statbuf.st_size, (waiting ? " Waiting for receiver..." : ""));
 		fflush(stdout);
 

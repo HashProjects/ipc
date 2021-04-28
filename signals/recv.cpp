@@ -106,7 +106,7 @@ void mainLoop()
  	 * there is no more data to send.
  	 */	
 	while ((msgSize = receiveMsgSize()) != 0) {
-        fprintf(stdout, "Received SIGUSR1 from send for %d bytes. ", msgSize);
+        fprintf(stdout, "Received SIGUSR1 from send (%d bytes). ", msgSize);
         fflush(stdout);
 		/* Save the shared memory to file */
 		if (fwrite(sharedMemPtr, sizeof(char), msgSize, fp) < 0) {

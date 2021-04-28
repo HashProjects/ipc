@@ -132,7 +132,7 @@ void send(const char* fileName)
 
 		// Report the file transfer status to stdout 
 		sentFileSize += bytesRead;
-		fprintf(stdout, "File transfer: %.2lf%% complete. %s\n", 
+		fprintf(stdout, "File transfer: %.2lf%%. %s\n", 
 			sentFileSize * 100.0 /statbuf.st_size, (waiting ? " Waiting for receiver..." : ""));
 		fflush(stdout);
 
@@ -146,7 +146,7 @@ void send(const char* fileName)
 			cleanUp(shmid, sharedMemPtr);
 			exit(-1);
 		}
-        fprintf(stdout, "Sent SIGUSR1 to recv. ");
+        fprintf(stdout, "Sent SIGUSR1 to recv (%d bytes). ", bytesRead);
         fflush(stdout);
 		/* Wait until the receiver sends us a signal SIGUSR2 telling us 
  		 * that he finished saving the memory chunk. 
